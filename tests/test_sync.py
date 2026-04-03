@@ -1,6 +1,6 @@
 import pytest
 
-from aleff1.v7 import (
+from aleff1 import (
     effect,
     Effect,
     handler,

@@ -3,7 +3,7 @@ import asyncio
 import pytest
 import pytest_asyncio  # pyright: ignore[reportUnusedImport]
 
-from aleff1.v7 import (
+from aleff1 import (
     effect,
     Effect,
     handler,
