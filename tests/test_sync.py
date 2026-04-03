@@ -47,7 +47,7 @@ class TestEffectFactory:
             effect()
 
     def test_non_effect_arguments_raises_type_error(self):
-        with pytest.raises(TypeError, match="all arguments must be Effect"):
+        with pytest.raises(TypeError, match="all arguments must be callable"):
             effect(42)  # type: ignore
 
 

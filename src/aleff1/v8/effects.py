@@ -1,8 +1,8 @@
 from dataclasses import field, dataclass
 from functools import wraps
-from typing import Any, Callable, cast, overload
+from typing import Any, Callable, cast, overload, Sequence
 import greenlet as gl
-from .intf import Effect, Caller, EffectNotHandledError
+from .intf import Effect, EffectNotHandledError
 from .misc import debug
 
 
@@ -11,10 +11,10 @@ def effect(name: str, /) -> Effect[..., Any]: ...
 
 
 @overload
-def effect[V](*effects: Effect[..., Any]) -> Callable[[Caller[V]], Caller[V]]: ...
+def effect[**P, R](*functions: Callable[..., Any]) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 
 
-def effect[**P, R, V](*args: str | Effect[P, R]) -> Effect[..., Any] | Callable[[Caller[V]], Caller[V]]:
+def effect[**P, R](*args: str | Callable[..., Any]) -> Effect[..., Any] | Callable[[Callable[P, R]], Callable[P, R]]:
     """Create an effect or an effect-set decorator.
 
     * ``effect("name")`` — create a new :class:`Effect` with the given name.
@@ -23,27 +23,47 @@ def effect[**P, R, V](*args: str | Effect[P, R]) -> Effect[..., Any] | Callable[
       (a ``frozenset`` of effects) that can be retrieved with
       :func:`get_effects`.
     """
+
     if len(args) == 0:
         raise TypeError("at least one argument is required")
 
     if isinstance(args[0], str):
+        # create a new Effect
         return _Effect[..., Any](args[0])
 
-    if not all(isinstance(arg, Effect) for arg in args):
-        raise TypeError("all arguments must be Effect")
+    # create an effect-set decorator
 
-    args = cast(tuple[Effect[..., Any]], args)
+    # Effect is also callable
+    if not all(isinstance(arg, Callable) for arg in args):
+        raise TypeError("all arguments must be callable")
+
+    args = cast(tuple[Callable[..., Any]], args)
     decorator = _create_effect_annotator(args)
     return decorator
 
 
-def _create_effect_annotator[V](effects: tuple[Effect[..., Any]]) -> Callable[[Caller[V]], Caller[V]]:
-    def decorator(fn: Caller[V]) -> Caller[V]:
+def _create_effect_annotator[**P, R](
+    functions: tuple[Callable[..., Any]],
+) -> Callable[[Callable[P, R]], Callable[P, R]]:
+    def decorator(fn: Callable[P, R]) -> Callable[P, R]:
         wrapped = wraps(fn)(fn)
-        setattr(wrapped, "__effects__", frozenset(effects))
+        setattr(wrapped, "__effects__", _flatten_effects(functions))
         return wrapped
 
     return decorator
+
+
+def _flatten_effects(fns: Sequence[Callable[..., Any]]) -> frozenset[Effect[..., Any]]:
+    effects = set[Effect[..., Any]]()
+    for fn in fns:
+        effects.update(_get_effects(fn))
+    return frozenset(effects)
+
+
+def _get_effects(fn: Callable[..., Any]) -> set[Effect[..., Any]]:
+    if isinstance(fn, Effect):
+        return {fn}
+    return getattr(fn, "__effects__", set())
 
 
 @dataclass(frozen=True)

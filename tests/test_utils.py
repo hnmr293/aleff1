@@ -1,4 +1,4 @@
-"""Tests for v8 effect metadata, get_effects, and unhandled_effects."""
+"""Tests for effect metadata, get_effects, and unhandled_effects."""
 
 import pytest
 
