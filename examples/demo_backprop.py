@@ -19,8 +19,8 @@ Comparison:
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
+from typing import Any, Callable
 
 from aleff1 import (
     effect,
@@ -130,7 +130,7 @@ def f6(x_val: float) -> Any:
 # ---------------------------------------------------------------------------
 
 
-def evaluate(f, x: float) -> float:
+def evaluate(f: Callable[[float], Any], x: float) -> float:
     h = create_handler(*ALL_OPS)
 
     @h.on(var)
@@ -181,7 +181,7 @@ def evaluate(f, x: float) -> float:
 # ---------------------------------------------------------------------------
 
 
-def backprop(f, x: float) -> tuple[float, float]:
+def backprop(f: Callable[[float], Any], x: float) -> tuple[float, float]:
     """Compute f(x) and f'(x) using reverse-mode AD.
 
     Each handler:
@@ -291,7 +291,7 @@ def backprop(f, x: float) -> tuple[float, float]:
 # ---------------------------------------------------------------------------
 
 
-def numerical_diff(f, x: float, eps: float = 1e-7) -> float:
+def numerical_diff(f: Callable[[float], Any], x: float, eps: float = 1e-7) -> float:
     return (evaluate(f, x + eps) - evaluate(f, x - eps)) / (2 * eps)
 
 

@@ -1,7 +1,5 @@
 """Tests for effect metadata, get_effects, and unhandled_effects."""
 
-import pytest
-
 from aleff1 import (
     effect,
     Effect,

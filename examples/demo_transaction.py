@@ -10,7 +10,6 @@ Implement transaction semantics via effect handlers.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
 
 from aleff1 import (
     effect,
@@ -74,7 +73,7 @@ def process_payroll(company: str, employees: list[tuple[str, int]]) -> str:
 
 @dataclass
 class Database:
-    accounts: dict[str, Account] = field(default_factory=dict)
+    accounts: dict[str, Account] = field(default_factory=dict[str, Account])
 
     def snapshot(self) -> dict[str, int]:
         return {name: acc.balance for name, acc in sorted(self.accounts.items())}
