@@ -1,6 +1,5 @@
 from asyncio import Lock, iscoroutine
 from contextvars import ContextVar
-from functools import wraps, partial
 from inspect import iscoroutinefunction
 from typing import Any, Callable, cast, Coroutine
 import greenlet as gl
@@ -17,6 +16,7 @@ from .intf import (
 )
 from .effects import EffectContext
 from .misc import debug
+from .._aleff import FrameSnapshot, restore_continuation, snapshot_from_frame
 
 
 def create_handler(*effects: Effect[..., Any]) -> handler[Any]:
@@ -39,47 +39,86 @@ def create_async_handler(*effects: Effect[..., Any]) -> async_handler[Any]:
 
 
 ##
-# greenlet-based implementation
+# greenlet-based implementation with multi-shot support
 #
-# handler_gl --|caller_gl.switch()|-> caller_gl
-#   effect --|handler_gl.switch(eff, args)|-> handler_gl
-#     resume v --|caller_gl.switch(eff, v)|-> caller_gl
-#     return v --> *finish* v
+# Resume checks caller_gl.dead:
+#   alive  → one-shot: caller_gl.switch(value)
+#   dead   → multi-shot: restore_continuation(snapshot, value) in new greenlet
+#
+# A fresh Resume is created at each effect dispatch in _drive/_drive_async,
+# capturing the current caller_gl and snapshot. This avoids statefulness
+# and prevents infinite recursion on multi-shot.
 ##
 
 
 class _Resume[R, V](Resume[R, V]):
+    def __init__(self, caller_gl: gl.greenlet, snapshot: FrameSnapshot[R, V]) -> None:
+        self._caller_gl = caller_gl
+        self._snapshot = snapshot
+
     def __call__(self, value: R) -> V:
-        caller_gl = _get_caller()
+        caller_gl = self._caller_gl
 
-        debug("||> @caller")
+        if not caller_gl.dead:
+            debug("||> @caller (one-shot)")
+            v = caller_gl.switch(value)
+            debug(f"||< @caller = {v!r}")
+            return _drive(caller_gl, v)
 
-        v = caller_gl.switch(value)
+        debug("||> @caller (multi-shot)")
 
-        debug(f"||< @caller = {v!r}")
+        ss = self._snapshot
 
-        return _drive(caller_gl, v)
+        def _body() -> V:
+            return restore_continuation(ss, value)
+
+        new_gl = gl.greenlet(_body)
+        v = _drive(new_gl, new_gl.switch())
+
+        debug(f"||< @caller (multi-shot) = {v!r}")
+
+        return v
 
 
 class _ResumeAsync[R, V](ResumeAsync[R, V]):
+    def __init__(self, caller_gl: gl.greenlet, snapshot: FrameSnapshot[R, V]) -> None:
+        self._caller_gl = caller_gl
+        self._snapshot = snapshot
+
     async def __call__(self, value: R) -> V:
-        caller_gl = _get_caller()
+        caller_gl = self._caller_gl
 
-        debug("||> @caller")
+        if not caller_gl.dead:
+            debug("||> @caller (one-shot async)")
+            v = caller_gl.switch(value)
+            debug(f"||< @caller = {v!r}")
+            return await _drive_async(caller_gl, v)
 
-        v = caller_gl.switch(value)
+        debug("||> @caller (multi-shot async)")
 
-        debug(f"||< @caller = {v!r}")
+        ss = self._snapshot
 
-        return await _drive_async(caller_gl, v)
+        def _body() -> V:
+            return restore_continuation(ss, value)
+
+        new_gl = gl.greenlet(_body)
+        v = await _drive_async(new_gl, new_gl.switch())
+
+        debug(f"||< @caller (multi-shot async) = {v!r}")
+
+        return v
 
 
-def _pre_drive[V](caller_gl: Any, value: EffectContext[..., Any]):
+def _pre_drive(
+    caller_gl: Any,
+    value: EffectContext[..., Any],
+) -> tuple[Effect[..., Any], Callable[..., Any], tuple[Any, ...], dict[str, Any]]:
     if not isinstance(value, EffectContext):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise RuntimeError(f"invalid value passed to caller: {value!r}")
 
-    effect: Effect[..., Any]
-    effect, args, kwargs = value.effect, value.args, value.kwargs  # type: ignore
+    effect = value.effect
+    args = value.args
+    kwargs = value.kwargs
 
     found = _get_item(effect)
     if found is None:
@@ -88,8 +127,6 @@ def _pre_drive[V](caller_gl: Any, value: EffectContext[..., Any]):
     handler, fn = found
 
     debug(f"||> ... found handler {handler} | {fn.__name__}")
-
-    _set_caller(caller_gl)
 
     return effect, fn, args, kwargs
 
@@ -108,7 +145,13 @@ def _drive[V](caller_gl: Any, value: V | EffectContext[..., Any]) -> V:
     # switch to the handler greenlet
 
     effect, fn, args, kwargs = _pre_drive(caller_gl, cast(EffectContext[..., Any], value))
-    v = fn(*args, **kwargs)
+
+    # Take snapshot from the handler greenlet. The caller greenlet is
+    # suspended at this point, so its frames have valid stacktop values.
+    snapshot = snapshot_from_frame(caller_gl.gr_frame)
+
+    resume: Resume[Any, Any] = _Resume(caller_gl, snapshot)
+    v = fn(resume, *args, **kwargs)
 
     if not caller_gl.dead:
         # resume not called in the handler
@@ -141,10 +184,13 @@ async def _drive_async[V](caller_gl: Any, value: V | EffectContext[..., Any]) ->
 
     effect, fn, args, kwargs = _pre_drive(caller_gl, cast(EffectContext[..., Any], value))
 
+    snapshot = snapshot_from_frame(caller_gl.gr_frame)
+    resume: ResumeAsync[Any, Any] = _ResumeAsync(caller_gl, snapshot)
+
     if iscoroutinefunction(fn):
-        v = await fn(*args, **kwargs)
+        v = await fn(resume, *args, **kwargs)
     else:
-        v = fn(*args, **kwargs)
+        v = fn(resume, *args, **kwargs)
 
     if not caller_gl.dead:
         # resume not called in the handler
@@ -164,7 +210,6 @@ _num = 0
 class _handler_base[
     EffectType,
     EffectHandlerType: Callable[..., Any],
-    ReducedHandlerType: Callable[..., Any],
     CallerType: Callable[[], Any],
 ]:
     def __init__(self, *effects: EffectType):
@@ -172,7 +217,7 @@ class _handler_base[
 
         self._effects = tuple(effects)
         self._unbound_effects = set(effects)
-        self._reserved_effects: list[tuple[EffectType, ReducedHandlerType]] = []
+        self._reserved_effects: list[tuple[EffectType, EffectHandlerType]] = []
         self._n = _num
         _num += 1
         debug(f"@ {self}")
@@ -187,7 +232,6 @@ class _handler[V](
     _handler_base[
         Effect[..., Any],
         EffectHandler[..., V, Any],
-        Callable[..., V],
         Caller[V],
     ],
     handler[V],
@@ -196,16 +240,12 @@ class _handler[V](
     def effects(self) -> frozenset[Effect[..., Any]]:
         return frozenset(self._effects)
 
-    def on[**P, R](self, effect: Effect[P, R]) -> Callable[[EffectHandler[P, V, R]], Callable[P, V]]:
+    def on[**P, R](self, effect: Effect[P, R]) -> Callable[[EffectHandler[P, V, R]], EffectHandler[P, V, R]]:
         debug(f"|+ {effect} | {self}")
 
-        resume = _Resume[Any, Any]()
-
-        def decorator(fn: EffectHandler[P, V, Any]) -> Callable[P, V]:
-            fn = wraps(fn)(partial(fn, resume))  # type: ignore
-            f = cast(Callable[P, V], fn)
-            self._reserved_effects.append((effect, f))
-            return f
+        def decorator(fn: EffectHandler[P, V, R]) -> EffectHandler[P, V, R]:
+            self._reserved_effects.append((effect, fn))
+            return fn
 
         # raises an error if the same effect is handled multiple times
         if effect not in self._effects:
@@ -248,7 +288,6 @@ class _async_handler[V](
     _handler_base[
         Effect[..., Any],
         AsyncEffectHandler[..., V, Any],
-        Callable[..., Coroutine[Any, Any, V]],
         Caller[V | Coroutine[Any, Any, V]],
     ],
     async_handler[V],
@@ -260,16 +299,12 @@ class _async_handler[V](
     def on[**P, R](
         self,
         effect: Effect[P, R],
-    ) -> Callable[[AsyncEffectHandler[P, V, R]], Callable[P, Coroutine[Any, Any, V]]]:
+    ) -> Callable[[AsyncEffectHandler[P, V, R]], AsyncEffectHandler[P, V, R]]:
         debug(f"|+ {effect} | {self}")
 
-        resume = _ResumeAsync[Any, Any]()
-
-        def decorator(fn: AsyncEffectHandler[P, V, Any]) -> Callable[P, Coroutine[Any, Any, V]]:
-            fn = wraps(fn)(partial(fn, resume))  # type: ignore
-            f = cast(Callable[P, Coroutine[Any, Any, V]], fn)
-            self._reserved_effects.append((effect, f))
-            return f
+        def decorator(fn: AsyncEffectHandler[P, V, R]) -> AsyncEffectHandler[P, V, R]:
+            self._reserved_effects.append((effect, fn))
+            return fn
 
         # raises an error if the same effect is handled multiple times
         if effect not in self._effects:
@@ -310,30 +345,14 @@ class _async_handler[V](
 
 # ---
 
-_caller_gl = ContextVar("caller_gl", default=None)
-
-
-def _get_caller() -> Any:
-    g = _caller_gl.get()
-    if g is None:
-        raise RuntimeError("no caller found")
-    return g
-
-
-def _set_caller(g: Any) -> None:
-    _caller_gl.set(g)
-
-
-# ---
-
-# handler stask
+# Handler stack
+# (token, handler, effect, fn)
 # NB. two greenlets cannot share the ContextVar
 #     so only handler_gl should access this stack
 
-# (runner, effect, handler)
 type _StackItem[**P, R, V] = tuple[object, _handler[V] | _async_handler[V], Effect[P, R], Callable[P, V]]
 
-_stack = ContextVar[list[_StackItem[..., Any, Any]]]("handler_stask", default=[])
+_stack: ContextVar[list[_StackItem[..., Any, Any]]] = ContextVar("handler_stack", default=[])
 _lock = Lock()
 
 
@@ -346,7 +365,7 @@ def _set_stack(stack: list[_StackItem[..., Any, Any]]) -> None:
 
 
 def _get_item[**P, R](effect: Effect[P, R]) -> tuple[_handler[Any] | _async_handler[Any], Callable[P, Any]] | None:
-    s: list[_StackItem[..., Any, Any]] = _get_stack()
+    s = _get_stack()
     for _, h, e, f in reversed(s):
         if e is effect:
             return h, f
@@ -358,10 +377,10 @@ def _put_handlers[**P, R, V](
     handler: _handler[V],
     effects: list[tuple[Effect[P, R], Callable[P, V]]],
 ) -> None:
-    stask = _get_stack()
+    stack = _get_stack()
     for effect, fn in effects:
-        stask.append((token, handler, effect, fn))
-    _set_stack(stask)
+        stack.append((token, handler, effect, fn))
+    _set_stack(stack)
 
 
 async def _put_handlers_async[**P, R, V](
@@ -370,18 +389,18 @@ async def _put_handlers_async[**P, R, V](
     effects: list[tuple[Effect[P, R], Callable[P, Coroutine[Any, Any, V]]]],
 ) -> None:
     async with _lock:
-        stask = _get_stack()
+        stack = _get_stack()
         for effect, fn in effects:
-            stask.append((token, handler, effect, fn))
-        _set_stack(stask)
+            stack.append((token, handler, effect, fn))
+        _set_stack(stack)
 
 
-def _remove_all_handlers[**P, R, V](token: object) -> None:
+def _remove_all_handlers(token: object) -> None:
     stack = [x for x in _get_stack() if x[0] is not token]
     _set_stack(stack)
 
 
-async def _remove_all_handlers_async[**P, R, V](token: object) -> None:
+async def _remove_all_handlers_async(token: object) -> None:
     async with _lock:
         stack = _get_stack()
         stack = [x for x in stack if x[0] is not token]

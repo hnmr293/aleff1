@@ -97,8 +97,12 @@ class TestMultiShotStateIndependence:
         result = h(run)
         assert result == [101, 102]
 
-    def test_mutations_dont_leak_between_shots(self):
-        """Mutable local state in the continuation doesn't leak across shots."""
+    def test_mutable_locals_are_shared(self):
+        """Mutable objects in locals are shared across shots (Scheme semantics).
+
+        The frame copy shares the same list object because continuations
+        share the heap, matching Scheme's call/cc behavior.
+        """
         choose: Effect[[], int] = effect("choose")
         h = create_handler(choose)
 
@@ -113,8 +117,26 @@ class TestMultiShotStateIndependence:
             return items
 
         result = h(run)
-        # Each shot starts with an empty list, not the previous shot's list
-        assert result == [[1], [2], [3]]
+        # Shared list accumulates across shots
+        assert result == [[1, 2, 3], [1, 2, 3], [1, 2, 3]]
+
+    def test_mutable_locals_snapshot_via_copy(self):
+        """Shallow-copying a local mutable captures per-shot state."""
+        choose: Effect[[], int] = effect("choose")
+        h = create_handler(choose)
+
+        @h.on(choose)
+        def _choose(k: Resume[int, list[list[int]]]):
+            return [k(1), k(2), k(3)]
+
+        def run():
+            items: list[int] = []
+            v = choose()
+            items.append(v)
+            return list(items)  # shallow copy captures current state
+
+        result = h(run)
+        assert result == [[1], [1, 2], [1, 2, 3]]
 
     def test_heap_state_is_shared(self):
         """Mutable objects from outside the continuation are shared (Scheme semantics)."""
@@ -514,8 +536,8 @@ class TestMultiShotAsync:
         assert result == "aborted"
 
     @pytest.mark.asyncio
-    async def test_async_state_independence(self):
-        """Async multi-shot maintains independent state per shot."""
+    async def test_async_mutable_locals_shared(self):
+        """Async multi-shot shares mutable locals (Scheme semantics)."""
         choose: Effect[[], int] = effect("choose")
         h = create_async_handler(choose)
 
@@ -530,7 +552,27 @@ class TestMultiShotAsync:
             return items
 
         result = await h(run)
-        assert result == [[1], [2], [3]]
+        # Shared list accumulates across shots
+        assert result == [[1, 2, 3], [1, 2, 3], [1, 2, 3]]
+
+    @pytest.mark.asyncio
+    async def test_async_mutable_locals_snapshot_via_copy(self):
+        """Async: shallow-copying a local mutable captures per-shot state."""
+        choose: Effect[[], int] = effect("choose")
+        h = create_async_handler(choose)
+
+        @h.on(choose)
+        async def _choose(k: ResumeAsync[int, list[list[int]]]):
+            return [await k(1), await k(2), await k(3)]
+
+        def run():
+            items: list[int] = []
+            v = choose()
+            items.append(v)
+            return list(items)
+
+        result = await h(run)
+        assert result == [[1], [1, 2], [1, 2, 3]]
 
     @pytest.mark.asyncio
     async def test_async_multishot_with_oneshot(self):
