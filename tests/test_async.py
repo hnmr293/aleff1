@@ -6,8 +6,8 @@ import pytest_asyncio  # pyright: ignore[reportUnusedImport]
 from aleff import (
     effect,
     Effect,
-    handler,
-    async_handler,
+    Handler,
+    AsyncHandler,
     create_handler,
     create_async_handler,
     Resume,
@@ -25,7 +25,7 @@ class TestAsyncHandler:
     @pytest.mark.asyncio
     async def test_single_effect_resume(self):
         get_val: Effect[[], str] = effect("get_val")
-        h: async_handler[str] = create_async_handler(get_val)
+        h: AsyncHandler[str] = create_async_handler(get_val)
 
         @h.on(get_val)
         async def _get(k: ResumeAsync[str, str]):
@@ -38,7 +38,7 @@ class TestAsyncHandler:
     async def test_multiple_effects(self):
         read: Effect[[], str] = effect("read")
         write: Effect[[str], int] = effect("write")
-        h: async_handler[int] = create_async_handler(read, write)
+        h: AsyncHandler[int] = create_async_handler(read, write)
 
         @h.on(read)
         async def _read(k: ResumeAsync[str, int]):
@@ -59,7 +59,7 @@ class TestAsyncHandler:
     async def test_await_in_handler(self):
         """Handler can use await before resuming."""
         e: Effect[[], str] = effect("e")
-        h: async_handler[str] = create_async_handler(e)
+        h: AsyncHandler[str] = create_async_handler(e)
 
         @h.on(e)
         async def _handle(k: ResumeAsync[str, str]):
@@ -72,7 +72,7 @@ class TestAsyncHandler:
     @pytest.mark.asyncio
     async def test_abort_without_resume(self):
         e: Effect[[], int] = effect("e")
-        h: async_handler[int] = create_async_handler(e)
+        h: AsyncHandler[int] = create_async_handler(e)
 
         @h.on(e)
         async def _handle(k: ResumeAsync[int, int]):
@@ -87,7 +87,7 @@ class TestAsyncHandler:
         outer_eff: Effect[[], int] = effect("outer")
 
         async def run_inner():
-            h: async_handler[str] = create_async_handler(inner_eff)
+            h: AsyncHandler[str] = create_async_handler(inner_eff)
 
             @h.on(inner_eff)
             async def _handle(k: ResumeAsync[str, str]):
@@ -96,7 +96,7 @@ class TestAsyncHandler:
             return await h(lambda: inner_eff())
 
         async def run_outer():
-            h: async_handler[int] = create_async_handler(outer_eff)
+            h: AsyncHandler[int] = create_async_handler(outer_eff)
 
             @h.on(outer_eff)
             async def _handle(k: ResumeAsync[int, int]):
@@ -118,7 +118,7 @@ class TestAsyncHandler:
     @pytest.mark.asyncio
     async def test_effect_with_arguments(self):
         add: Effect[[int, int], int] = effect("add")
-        h: async_handler[int] = create_async_handler(add)
+        h: AsyncHandler[int] = create_async_handler(add)
 
         @h.on(add)
         async def _add(k: ResumeAsync[int, int], a: int, b: int):
@@ -133,7 +133,7 @@ class TestAsyncHandler:
         counter: Effect[[], int] = effect("counter")
         call_count = 0
 
-        h: async_handler[int] = create_async_handler(counter)
+        h: AsyncHandler[int] = create_async_handler(counter)
 
         @h.on(counter)
         async def _counter(k: ResumeAsync[int, int]):
@@ -168,7 +168,7 @@ class TestAsyncHandlerErrors:
     async def test_effect_not_declared_raises(self):
         e1: Effect[[], str] = effect("e1")
         e2: Effect[[], str] = effect("e2")
-        h: async_handler[str] = create_async_handler(e1)
+        h: AsyncHandler[str] = create_async_handler(e1)
 
         with pytest.raises(ValueError, match="not declared"):
 
@@ -179,7 +179,7 @@ class TestAsyncHandlerErrors:
     @pytest.mark.asyncio
     async def test_duplicate_effect_handler_raises(self):
         e: Effect[[], str] = effect("e")
-        h: async_handler[str] = create_async_handler(e)
+        h: AsyncHandler[str] = create_async_handler(e)
 
         @h.on(e)
         async def _handle(k: ResumeAsync[str, str]):
@@ -195,7 +195,7 @@ class TestAsyncHandlerErrors:
     async def test_unbound_effects_raises_on_call(self):
         e1: Effect[[], str] = effect("e1")
         e2: Effect[[], str] = effect("e2")
-        h: async_handler[str] = create_async_handler(e1, e2)
+        h: AsyncHandler[str] = create_async_handler(e1, e2)
 
         @h.on(e1)
         async def _handle(k: ResumeAsync[str, str]):
@@ -208,7 +208,7 @@ class TestAsyncHandlerErrors:
     async def test_check_false_skips_validation(self):
         e1: Effect[[], str] = effect("e1")
         e2: Effect[[], str] = effect("e2")
-        h: async_handler[str] = create_async_handler(e1, e2)
+        h: AsyncHandler[str] = create_async_handler(e1, e2)
 
         @h.on(e1)
         async def _handle(k: ResumeAsync[str, str]):
@@ -220,7 +220,7 @@ class TestAsyncHandlerErrors:
     @pytest.mark.asyncio
     async def test_fn_exception_propagates(self):
         e: Effect[[], str] = effect("e")
-        h: async_handler[str] = create_async_handler(e)
+        h: AsyncHandler[str] = create_async_handler(e)
 
         @h.on(e)
         async def _handle(k: ResumeAsync[str, str]):
@@ -236,7 +236,7 @@ class TestAsyncHandlerErrors:
     @pytest.mark.asyncio
     async def test_handler_exception_propagates(self):
         e: Effect[[], str] = effect("e")
-        h: async_handler[str] = create_async_handler(e)
+        h: AsyncHandler[str] = create_async_handler(e)
 
         @h.on(e)
         async def _handle(k: ResumeAsync[str, str]):
@@ -258,7 +258,7 @@ class TestMixedNesting:
         async_eff: Effect[[], int] = effect("async_eff")
 
         def inner():
-            h: handler[str] = create_handler(sync_eff)
+            h: Handler[str] = create_handler(sync_eff)
 
             @h.on(sync_eff)
             def _handle(k: Resume[str, str]):
@@ -267,7 +267,7 @@ class TestMixedNesting:
             return h(lambda: sync_eff())
 
         async def outer():
-            h: async_handler[int] = create_async_handler(async_eff)
+            h: AsyncHandler[int] = create_async_handler(async_eff)
 
             @h.on(async_eff)
             async def _handle(k: ResumeAsync[int, int]):
@@ -291,7 +291,7 @@ class TestAsyncStackCleanup:
     @pytest.mark.asyncio
     async def test_stack_cleaned_after_handler(self):
         e: Effect[[], str] = effect("e")
-        h: async_handler[str] = create_async_handler(e)
+        h: AsyncHandler[str] = create_async_handler(e)
 
         @h.on(e)
         async def _handle(k: ResumeAsync[str, str]):
@@ -305,7 +305,7 @@ class TestAsyncStackCleanup:
     @pytest.mark.asyncio
     async def test_stack_cleaned_after_exception(self):
         e: Effect[[], str] = effect("e")
-        h: async_handler[str] = create_async_handler(e)
+        h: AsyncHandler[str] = create_async_handler(e)
 
         @h.on(e)
         async def _handle(k: ResumeAsync[str, str]):

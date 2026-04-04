@@ -3,8 +3,8 @@ from .intf import (
     EffectNotHandledError,
     Resume,
     ResumeAsync,
-    handler,
-    async_handler,
+    Handler,
+    AsyncHandler,
 )
 
 from .effects import (
@@ -28,8 +28,8 @@ __all__ = [
     "EffectNotHandledError",
     "Resume",
     "ResumeAsync",
-    "handler",
-    "async_handler",
+    "Handler",
+    "AsyncHandler",
     "effect",
     "create_handler",
     "create_async_handler",

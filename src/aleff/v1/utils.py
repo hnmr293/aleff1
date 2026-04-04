@@ -1,5 +1,5 @@
 from typing import Callable, Any
-from .intf import Effect, handler, async_handler
+from .intf import Effect, Handler, AsyncHandler
 
 
 def effects(fn: Callable[..., Any]) -> frozenset[Effect[..., Any]]:
@@ -10,7 +10,7 @@ def effects(fn: Callable[..., Any]) -> frozenset[Effect[..., Any]]:
 
 def unhandled_effects[V](
     fn: Callable[..., Any],
-    *handlers: handler[V] | async_handler[V],
+    *handlers: Handler[V] | AsyncHandler[V],
 ) -> frozenset[Effect[..., Any]]:
     """Return the set of effects used by *fn* that are not handled by *handlers*."""
 

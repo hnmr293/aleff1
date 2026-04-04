@@ -53,7 +53,7 @@ type EffectHandler[**P, V, R] = Callable[Concatenate[Resume[R, V], P], V]
 type AsyncEffectHandler[**P, V, R] = Callable[Concatenate[ResumeAsync[R, V], P], AsyncCaller[V]]
 
 
-class handler[V](Protocol):
+class Handler[V](Protocol):
     """Protocol for synchronous effect handlers.
 
     Create instances via :func:`create_handler`.  Register effect
@@ -87,7 +87,7 @@ class handler[V](Protocol):
         ...
 
 
-class async_handler[V](Protocol):
+class AsyncHandler[V](Protocol):
     """Protocol for asynchronous effect handlers.
 
     Create instances via :func:`create_async_handler`.  Handler functions

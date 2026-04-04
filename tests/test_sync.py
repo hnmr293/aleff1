@@ -3,7 +3,7 @@ import pytest
 from aleff import (
     effect,
     Effect,
-    handler,
+    Handler,
     create_handler,
     Resume,
     EffectNotHandledError,
@@ -59,7 +59,7 @@ class TestEffectFactory:
 class TestSyncHandler:
     def test_single_effect_resume(self):
         get_val: Effect[[], str] = effect("get_val")
-        h: handler[str] = create_handler(get_val)
+        h: Handler[str] = create_handler(get_val)
 
         @h.on(get_val)
         def _get(k: Resume[str, str]):
@@ -71,7 +71,7 @@ class TestSyncHandler:
     def test_multiple_effects(self):
         read: Effect[[], str] = effect("read")
         write: Effect[[str], int] = effect("write")
-        h: handler[int] = create_handler(read, write)
+        h: Handler[int] = create_handler(read, write)
 
         @h.on(read)
         def _read(k: Resume[str, int]):
@@ -90,7 +90,7 @@ class TestSyncHandler:
 
     def test_effect_with_arguments(self):
         add: Effect[[int, int], int] = effect("add")
-        h: handler[int] = create_handler(add)
+        h: Handler[int] = create_handler(add)
 
         @h.on(add)
         def _add(k: Resume[int, int], a: int, b: int):
@@ -102,7 +102,7 @@ class TestSyncHandler:
     def test_handler_result_from_fn(self):
         """handler returns the value from fn when no abort occurs."""
         e: Effect[[], str] = effect("e")
-        h: handler[str] = create_handler(e)
+        h: Handler[str] = create_handler(e)
 
         @h.on(e)
         def _handle(k: Resume[str, str]):
@@ -113,7 +113,7 @@ class TestSyncHandler:
 
     def test_abort_without_resume(self):
         e: Effect[[], int] = effect("e")
-        h: handler[int] = create_handler(e)
+        h: Handler[int] = create_handler(e)
 
         @h.on(e)
         def _handle(k: Resume[int, int]):
@@ -127,7 +127,7 @@ class TestSyncHandler:
         outer_eff: Effect[[], int] = effect("outer")
 
         def run_inner():
-            h: handler[str] = create_handler(inner_eff)
+            h: Handler[str] = create_handler(inner_eff)
 
             @h.on(inner_eff)
             def _handle(k: Resume[str, str]):
@@ -136,7 +136,7 @@ class TestSyncHandler:
             return h(lambda: inner_eff())
 
         def run_outer():
-            h: handler[int] = create_handler(outer_eff)
+            h: Handler[int] = create_handler(outer_eff)
 
             @h.on(outer_eff)
             def _handle(k: Resume[int, int]):
@@ -155,7 +155,7 @@ class TestSyncHandler:
         e: Effect[[], str] = effect("e")
 
         def run():
-            h_inner: handler[str] = create_handler(e)
+            h_inner: Handler[str] = create_handler(e)
 
             @h_inner.on(e)
             def _inner(k: Resume[str, str]):
@@ -163,7 +163,7 @@ class TestSyncHandler:
 
             return h_inner(lambda: e())
 
-        h_outer: handler[str] = create_handler(e)
+        h_outer: Handler[str] = create_handler(e)
 
         @h_outer.on(e)
         def _outer(k: Resume[str, str]):
@@ -177,7 +177,7 @@ class TestSyncHandler:
         counter: Effect[[], int] = effect("counter")
         call_count = 0
 
-        h: handler[int] = create_handler(counter)
+        h: Handler[int] = create_handler(counter)
 
         @h.on(counter)
         def _counter(k: Resume[int, int]):
@@ -210,7 +210,7 @@ class TestSyncHandlerErrors:
     def test_effect_not_declared_raises(self):
         e1: Effect[[], str] = effect("e1")
         e2: Effect[[], str] = effect("e2")
-        h: handler[str] = create_handler(e1)
+        h: Handler[str] = create_handler(e1)
 
         with pytest.raises(ValueError, match="not declared"):
 
@@ -220,7 +220,7 @@ class TestSyncHandlerErrors:
 
     def test_duplicate_effect_handler_raises(self):
         e: Effect[[], str] = effect("e")
-        h: handler[str] = create_handler(e)
+        h: Handler[str] = create_handler(e)
 
         @h.on(e)
         def _handle(k: Resume[str, str]):
@@ -235,7 +235,7 @@ class TestSyncHandlerErrors:
     def test_unbound_effects_raises_on_call(self):
         e1: Effect[[], str] = effect("e1")
         e2: Effect[[], str] = effect("e2")
-        h: handler[str] = create_handler(e1, e2)
+        h: Handler[str] = create_handler(e1, e2)
 
         @h.on(e1)
         def _handle(k: Resume[str, str]):
@@ -247,7 +247,7 @@ class TestSyncHandlerErrors:
     def test_check_false_skips_unbound_validation(self):
         e1: Effect[[], str] = effect("e1")
         e2: Effect[[], str] = effect("e2")
-        h: handler[str] = create_handler(e1, e2)
+        h: Handler[str] = create_handler(e1, e2)
 
         @h.on(e1)
         def _handle(k: Resume[str, str]):
@@ -259,7 +259,7 @@ class TestSyncHandlerErrors:
     def test_fn_exception_propagates(self):
         """Exceptions from fn propagate through handler."""
         e: Effect[[], str] = effect("e")
-        h: handler[str] = create_handler(e)
+        h: Handler[str] = create_handler(e)
 
         @h.on(e)
         def _handle(k: Resume[str, str]):
@@ -275,7 +275,7 @@ class TestSyncHandlerErrors:
     def test_handler_exception_propagates(self):
         """Exceptions raised in handler function propagate."""
         e: Effect[[], str] = effect("e")
-        h: handler[str] = create_handler(e)
+        h: Handler[str] = create_handler(e)
 
         @h.on(e)
         def _handle(k: Resume[str, str]):
@@ -293,7 +293,7 @@ class TestSyncHandlerErrors:
 class TestSyncStackCleanup:
     def test_stack_cleaned_after_handler(self):
         e: Effect[[], str] = effect("e")
-        h: handler[str] = create_handler(e)
+        h: Handler[str] = create_handler(e)
 
         @h.on(e)
         def _handle(k: Resume[str, str]):
@@ -307,7 +307,7 @@ class TestSyncStackCleanup:
     def test_stack_cleaned_after_exception(self):
         """Stack should be cleaned even when fn raises an exception."""
         e: Effect[[], str] = effect("e")
-        h: handler[str] = create_handler(e)
+        h: Handler[str] = create_handler(e)
 
         @h.on(e)
         def _handle(k: Resume[str, str]):
@@ -322,7 +322,7 @@ class TestSyncStackCleanup:
     def test_stack_cleaned_after_abort(self):
         """Stack is cleaned when handler aborts (no resume)."""
         e: Effect[[], int] = effect("e")
-        h: handler[int] = create_handler(e)
+        h: Handler[int] = create_handler(e)
 
         @h.on(e)
         def _handle(k: Resume[int, int]):

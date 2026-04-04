@@ -14,8 +14,8 @@ from aleff import (
     Effect,
     Resume,
     ResumeAsync,
-    handler,
-    async_handler,
+    Handler,
+    AsyncHandler,
     create_handler,
     create_async_handler,
     EffectNotHandledError,
@@ -31,7 +31,7 @@ class TestMultiShotBasic:
     def test_resume_twice(self):
         """k can be called twice, each resuming from the same point."""
         choose: Effect[[], int] = effect("choose")
-        h: handler[int] = create_handler(choose)
+        h: Handler[int] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[int, int]):
@@ -48,7 +48,7 @@ class TestMultiShotBasic:
 
     def test_resume_three_times(self):
         choose: Effect[[], int] = effect("choose")
-        h: handler[list[int]] = create_handler(choose)
+        h: Handler[list[int]] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[int, list[int]]):
@@ -66,7 +66,7 @@ class TestMultiShotBasic:
     def test_resume_zero_times(self):
         """Not calling k at all (abort) should still work."""
         choose: Effect[[], int] = effect("choose")
-        h: handler[int] = create_handler(choose)
+        h: Handler[int] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[int, int]):
@@ -85,7 +85,7 @@ class TestMultiShotStateIndependence:
     def test_local_variables_are_independent(self):
         """Each shot has independent local variable state."""
         choose: Effect[[], int] = effect("choose")
-        h: handler[list[int]] = create_handler(choose)
+        h: Handler[list[int]] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[int, list[int]]):
@@ -106,7 +106,7 @@ class TestMultiShotStateIndependence:
         share the heap, matching Scheme's call/cc behavior.
         """
         choose: Effect[[], int] = effect("choose")
-        h: handler[list[list[int]]] = create_handler(choose)
+        h: Handler[list[list[int]]] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[int, list[list[int]]]):
@@ -125,7 +125,7 @@ class TestMultiShotStateIndependence:
     def test_mutable_locals_snapshot_via_copy(self):
         """Shallow-copying a local mutable captures per-shot state."""
         choose: Effect[[], int] = effect("choose")
-        h: handler[list[list[int]]] = create_handler(choose)
+        h: Handler[list[list[int]]] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[int, list[list[int]]]):
@@ -145,7 +145,7 @@ class TestMultiShotStateIndependence:
         choose: Effect[[], int] = effect("choose")
         shared: list[int] = []
 
-        h: handler[list[list[int]]] = create_handler(choose)
+        h: Handler[list[list[int]]] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[int, list[list[int]]]):
@@ -173,7 +173,7 @@ class TestMultiShotMultipleEffects:
         """Two multi-shot effects compose (cartesian product)."""
         choose_x: Effect[[], int] = effect("choose_x")
         choose_y: Effect[[], int] = effect("choose_y")
-        h: handler[list[tuple[int, int]]] = create_handler(choose_x, choose_y)
+        h: Handler[list[tuple[int, int]]] = create_handler(choose_x, choose_y)
 
         @h.on(choose_x)
         def _choose_x(k: Resume[int, list[tuple[int, int]]]):
@@ -203,7 +203,7 @@ class TestMultiShotMultipleEffects:
         log: Effect[[str], None] = effect("log")
         logged: list[str] = []
 
-        h: handler[list[int]] = create_handler(choose, log)
+        h: Handler[list[int]] = create_handler(choose, log)
 
         @h.on(choose)
         def _choose(k: Resume[int, list[int]]):
@@ -235,14 +235,14 @@ class TestMultiShotNested:
         choose: Effect[[], int] = effect("choose")
         get_base: Effect[[], int] = effect("get_base")
 
-        h_outer: handler[list[int]] = create_handler(get_base)
+        h_outer: Handler[list[int]] = create_handler(get_base)
 
         @h_outer.on(get_base)
         def _get_base(k: Resume[int, list[int]]):
             return k(100)
 
         def inner():
-            h_inner: handler[list[int]] = create_handler(choose)
+            h_inner: Handler[list[int]] = create_handler(choose)
 
             @h_inner.on(choose)
             def _choose(k: Resume[int, list[int]]):
@@ -268,7 +268,7 @@ class TestMultiShotDeepCalls:
     def test_multishot_through_nested_function_calls(self):
         """Multi-shot works through multiple levels of function calls."""
         choose: Effect[[], int] = effect("choose")
-        h: handler[list[int]] = create_handler(choose)
+        h: Handler[list[int]] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[int, list[int]]):
@@ -289,7 +289,7 @@ class TestMultiShotDeepCalls:
     def test_multishot_with_recursion(self):
         """Multi-shot works in recursive computations."""
         choose: Effect[[], int] = effect("choose")
-        h: handler[list[int]] = create_handler(choose)
+        h: Handler[list[int]] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[int, list[int]]):
@@ -318,7 +318,7 @@ class TestMultiShotStatefulHandler:
         choose: Effect[[], int] = effect("choose")
         post_resume_log: list[str] = []
 
-        h: handler[list[int]] = create_handler(choose)
+        h: Handler[list[int]] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[int, list[int]]):
@@ -347,7 +347,7 @@ class TestMultiShotBackwardCompat:
     def test_single_resume_still_works(self):
         """Calling k exactly once (one-shot) continues to work."""
         get_val: Effect[[], str] = effect("get_val")
-        h: handler[str] = create_handler(get_val)
+        h: Handler[str] = create_handler(get_val)
 
         @h.on(get_val)
         def _get(k: Resume[str, str]):
@@ -359,7 +359,7 @@ class TestMultiShotBackwardCompat:
     def test_abort_still_works(self):
         """Not calling k (abort) continues to work."""
         e: Effect[[], int] = effect("e")
-        h: handler[int] = create_handler(e)
+        h: Handler[int] = create_handler(e)
 
         @h.on(e)
         def _handle(k: Resume[int, int]):
@@ -372,7 +372,7 @@ class TestMultiShotBackwardCompat:
         """Multiple one-shot effects still work correctly."""
         read: Effect[[], str] = effect("read")
         write: Effect[[str], int] = effect("write")
-        h: handler[int] = create_handler(read, write)
+        h: Handler[int] = create_handler(read, write)
 
         @h.on(read)
         def _read(k: Resume[str, int]):
@@ -392,7 +392,7 @@ class TestMultiShotBackwardCompat:
     def test_stack_cleanup_after_multishot(self):
         """Handler stack is cleaned up after multi-shot handler completes."""
         choose: Effect[[], int] = effect("choose")
-        h: handler[list[int]] = create_handler(choose)
+        h: Handler[list[int]] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[int, list[int]]):
@@ -413,7 +413,7 @@ class TestMultiShotEdgeCases:
     def test_resume_with_different_types(self):
         """Each shot can resume with a different value."""
         choose: Effect[[], str] = effect("choose")
-        h: handler[list[str]] = create_handler(choose)
+        h: Handler[list[str]] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[str, list[str]]):
@@ -429,7 +429,7 @@ class TestMultiShotEdgeCases:
     def test_multishot_effect_invoked_multiple_times(self):
         """A multi-shot effect is invoked multiple times in the same computation."""
         choose: Effect[[], int] = effect("choose")
-        h: handler[list[int]] = create_handler(choose)
+        h: Handler[list[int]] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[int, list[int]]):
@@ -447,7 +447,7 @@ class TestMultiShotEdgeCases:
     def test_exception_in_continuation_propagates(self):
         """An exception raised in the continuation propagates to the handler."""
         choose: Effect[[], int] = effect("choose")
-        h: handler[int] = create_handler(choose)
+        h: Handler[int] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[int, int]):
@@ -468,7 +468,7 @@ class TestMultiShotEdgeCases:
     def test_large_number_of_shots(self):
         """Many shots don't cause stack overflow or corruption."""
         choose: Effect[[], int] = effect("choose")
-        h: handler[list[int]] = create_handler(choose)
+        h: Handler[list[int]] = create_handler(choose)
 
         @h.on(choose)
         def _choose(k: Resume[int, list[int]]):
@@ -494,7 +494,7 @@ class TestMultiShotAsync:
     async def test_async_resume_twice(self):
         """Async handler can call k(value) multiple times."""
         choose: Effect[[], int] = effect("choose")
-        h: async_handler[int] = create_async_handler(choose)
+        h: AsyncHandler[int] = create_async_handler(choose)
 
         @h.on(choose)
         async def _choose(k: ResumeAsync[int, int]):
@@ -513,7 +513,7 @@ class TestMultiShotAsync:
     async def test_async_resume_with_await_between_shots(self):
         """Async handler can await between multi-shot resumes."""
         choose: Effect[[], int] = effect("choose")
-        h: async_handler[list[int]] = create_async_handler(choose)
+        h: AsyncHandler[list[int]] = create_async_handler(choose)
 
         @h.on(choose)
         async def _choose(k: ResumeAsync[int, list[int]]):
@@ -533,7 +533,7 @@ class TestMultiShotAsync:
     async def test_async_abort(self):
         """Async handler abort (no resume) still works with multi-shot."""
         choose: Effect[[], int] = effect("choose")
-        h: async_handler[int] = create_async_handler(choose)
+        h: AsyncHandler[int] = create_async_handler(choose)
 
         @h.on(choose)
         async def _choose(k: ResumeAsync[int, int]):
@@ -546,7 +546,7 @@ class TestMultiShotAsync:
     async def test_async_mutable_locals_shared(self):
         """Async multi-shot shares mutable locals (Scheme semantics)."""
         choose: Effect[[], int] = effect("choose")
-        h: async_handler[list[list[int]]] = create_async_handler(choose)
+        h: AsyncHandler[list[list[int]]] = create_async_handler(choose)
 
         @h.on(choose)
         async def _choose(k: ResumeAsync[int, list[list[int]]]):
@@ -566,7 +566,7 @@ class TestMultiShotAsync:
     async def test_async_mutable_locals_snapshot_via_copy(self):
         """Async: shallow-copying a local mutable captures per-shot state."""
         choose: Effect[[], int] = effect("choose")
-        h: async_handler[list[list[int]]] = create_async_handler(choose)
+        h: AsyncHandler[list[list[int]]] = create_async_handler(choose)
 
         @h.on(choose)
         async def _choose(k: ResumeAsync[int, list[list[int]]]):
@@ -588,7 +588,7 @@ class TestMultiShotAsync:
         log: Effect[[str], None] = effect("log")
         logged: list[str] = []
 
-        h: async_handler[list[int]] = create_async_handler(choose, log)
+        h: AsyncHandler[list[int]] = create_async_handler(choose, log)
 
         @h.on(choose)
         async def _choose(k: ResumeAsync[int, list[int]]):
@@ -612,7 +612,7 @@ class TestMultiShotAsync:
     async def test_async_exception_in_continuation(self):
         """Exception in async multi-shot continuation propagates to handler."""
         choose: Effect[[], int] = effect("choose")
-        h: async_handler[int] = create_async_handler(choose)
+        h: AsyncHandler[int] = create_async_handler(choose)
 
         @h.on(choose)
         async def _choose(k: ResumeAsync[int, int]):
@@ -634,7 +634,7 @@ class TestMultiShotAsync:
     async def test_async_stack_cleanup(self):
         """Handler stack is cleaned up after async multi-shot handler completes."""
         choose: Effect[[], int] = effect("choose")
-        h: async_handler[list[int]] = create_async_handler(choose)
+        h: AsyncHandler[list[int]] = create_async_handler(choose)
 
         @h.on(choose)
         async def _choose(k: ResumeAsync[int, list[int]]):
@@ -658,14 +658,14 @@ class TestMultiShotMixed:
         choose: Effect[[], int] = effect("choose")
         get_base: Effect[[], int] = effect("get_base")
 
-        h_outer: async_handler[list[int]] = create_async_handler(get_base)
+        h_outer: AsyncHandler[list[int]] = create_async_handler(get_base)
 
         @h_outer.on(get_base)
         async def _get_base(k: ResumeAsync[int, list[int]]):
             return await k(100)
 
         def inner():
-            h_inner: handler[list[int]] = create_handler(choose)
+            h_inner: Handler[list[int]] = create_handler(choose)
 
             @h_inner.on(choose)
             def _choose(k: Resume[int, list[int]]):
@@ -692,13 +692,13 @@ class TestMultiShotMixed:
         choose: Effect[[], int] = effect("choose")
         get_base: Effect[[], int] = effect("get_base")
 
-        h_sync: handler[list[int]] = create_handler(choose)
+        h_sync: Handler[list[int]] = create_handler(choose)
 
         @h_sync.on(choose)
         def _choose(k: Resume[int, list[int]]):
             return k(1) + k(2)
 
-        h_async: async_handler[list[int]] = create_async_handler(get_base)
+        h_async: AsyncHandler[list[int]] = create_async_handler(get_base)
 
         @h_async.on(get_base)
         async def _get_base(k: ResumeAsync[int, list[int]]):

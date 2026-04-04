@@ -11,31 +11,31 @@ from .intf import (
     EffectHandler,
     AsyncEffectHandler,
     Caller,
-    handler,
-    async_handler,
+    Handler,
+    AsyncHandler,
 )
 from .effects import EffectContext
 from .misc import debug
 from .._aleff import FrameSnapshot, restore_continuation, snapshot_from_frame
 
 
-def create_handler(*effects: Effect[..., Any]) -> handler[Any]:
+def create_handler(*effects: Effect[..., Any]) -> Handler[Any]:
     """Create a synchronous handler that handles the given effects.
 
     Register implementations with :meth:`handler.on`, then call the handler
     with a caller function to run the computation.
     """
-    return _handler[Any](*effects)
+    return _Handler[Any](*effects)
 
 
-def create_async_handler(*effects: Effect[..., Any]) -> async_handler[Any]:
+def create_async_handler(*effects: Effect[..., Any]) -> AsyncHandler[Any]:
     """Create an asynchronous handler that handles the given effects.
 
     Handler functions are ``async def`` and receive :class:`ResumeAsync`.
     The caller function runs in a greenlet; effect invocations are
     synchronous from the caller's perspective.
     """
-    return _async_handler[Any](*effects)
+    return _AsyncHandler[Any](*effects)
 
 
 ##
@@ -114,9 +114,7 @@ class _ResumeAsync[R, V](ResumeAsync[R, V]):
 def _pre_drive(
     caller_gl: Any,
     value: EffectContext[..., Any],
-) -> tuple[
-    Effect[..., Any], "_handler[Any] | _async_handler[Any]", Callable[..., Any], tuple[Any, ...], dict[str, Any]
-]:
+) -> tuple[Effect[..., Any], "_Handler[Any] | _AsyncHandler[Any]", Callable[..., Any], tuple[Any, ...], dict[str, Any]]:
     if not isinstance(value, EffectContext):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise RuntimeError(f"invalid value passed to caller: {value!r}")
 
@@ -150,7 +148,7 @@ def _drive[V](caller_gl: Any, value: V | EffectContext[..., Any]) -> V:
 
     effect, handler, fn, args, kwargs = _pre_drive(caller_gl, cast(EffectContext[..., Any], value))
 
-    if isinstance(handler, _async_handler):
+    if isinstance(handler, _AsyncHandler):
         # async handler found in sync context — relay to parent greenlet.
         #
         # Normally, when a sync handler is nested inside an async handler,
@@ -287,13 +285,13 @@ class _handler_base[
             raise ValueError(f"not all effects are handled: {unboud_effects}")
 
 
-class _handler[V](
+class _Handler[V](
     _handler_base[
         Effect[..., Any],
         EffectHandler[..., V, Any],
         Caller[V],
     ],
-    handler[V],
+    Handler[V],
 ):
     @property
     def effects(self) -> frozenset[Effect[..., Any]]:
@@ -344,13 +342,13 @@ class _handler[V](
         return f"#handler({self._n}) | {', '.join(e.name for e in self._effects)}"
 
 
-class _async_handler[V](
+class _AsyncHandler[V](
     _handler_base[
         Effect[..., Any],
         AsyncEffectHandler[..., V, Any],
         Caller[V | Coroutine[Any, Any, V]],
     ],
-    async_handler[V],
+    AsyncHandler[V],
 ):
     @property
     def effects(self) -> frozenset[Effect[..., Any]]:
@@ -433,7 +431,7 @@ class _async_handler[V](
 # NB. two greenlets cannot share the ContextVar
 #     so only handler_gl should access this stack
 
-type _StackItem[**P, R, V] = tuple[object, _handler[V] | _async_handler[V], Effect[P, R], Callable[P, V]]
+type _StackItem[**P, R, V] = tuple[object, _Handler[V] | _AsyncHandler[V], Effect[P, R], Callable[P, V]]
 
 _stack: ContextVar[list[_StackItem[..., Any, Any]]] = ContextVar("handler_stack")
 _lock = Lock()
@@ -452,7 +450,7 @@ def _set_stack(stack: list[_StackItem[..., Any, Any]]) -> None:
     _stack.set(stack)
 
 
-def _get_item[**P, R](effect: Effect[P, R]) -> tuple[_handler[Any] | _async_handler[Any], Callable[P, Any]] | None:
+def _get_item[**P, R](effect: Effect[P, R]) -> tuple[_Handler[Any] | _AsyncHandler[Any], Callable[P, Any]] | None:
     s = _get_stack()
     for _, h, e, f in reversed(s):
         if e is effect:
@@ -462,7 +460,7 @@ def _get_item[**P, R](effect: Effect[P, R]) -> tuple[_handler[Any] | _async_hand
 
 def _put_handlers[**P, R, V](
     token: object,
-    handler: _handler[V],
+    handler: _Handler[V],
     effects: list[tuple[Effect[P, R], Callable[P, V]]],
 ) -> None:
     stack = _get_stack()
@@ -473,7 +471,7 @@ def _put_handlers[**P, R, V](
 
 async def _put_handlers_async[**P, R, V](
     token: object,
-    handler: _async_handler[V],
+    handler: _AsyncHandler[V],
     effects: list[tuple[Effect[P, R], Callable[P, Coroutine[Any, Any, V]]]],
 ) -> None:
     async with _lock:
