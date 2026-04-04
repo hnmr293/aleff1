@@ -38,8 +38,8 @@ typedef struct _aleff_frame {
     PyObject *f_funcobj;                 /* strong ref: function object */
     PyObject *f_globals;                 /* borrowed ref */
     PyObject *f_builtins;               /* borrowed ref */
-    PyObject *f_locals;                  /* strong ref, may be NULL */
-    PyFrameObject *frame_obj;            /* strong ref, may be NULL */
+    PyObject *f_locals;                  /* strong ref, may be nullptr */
+    PyFrameObject *frame_obj;            /* strong ref, may be nullptr */
     _aleff_codeunit *prev_instr;        /* instruction pointer */
     int stacktop;                        /* top of value stack */
     uint16_t return_offset;
@@ -86,7 +86,7 @@ FrameSnapshot_dealloc(FrameSnapshotObject *self)
     for (int i = 0; i < self->num_frames; i++) {
         _aleff_frame_copy_t *fc = &self->frames[i];
         _aleff_frame_t *f = fc->frame;
-        if (f == NULL) continue;
+        if (f == nullptr) continue;
 
         Py_XDECREF(f->f_executable);
         Py_XDECREF(f->f_funcobj);
@@ -95,7 +95,7 @@ FrameSnapshot_dealloc(FrameSnapshotObject *self)
         Py_XDECREF(f->f_globals);
         Py_XDECREF(f->f_builtins);
         Py_XDECREF(f->f_locals);
-        /* Don't decref frame_obj — we set it to NULL in copies */
+        /* Don't decref frame_obj — we set it to nullptr in copies */
 
         for (int j = 0; j < fc->num_slots; j++) {
             Py_XDECREF(f->localsplus[j]);
@@ -115,12 +115,12 @@ FrameSnapshot_class_getitem([[maybe_unused]] PyObject *cls, [[maybe_unused]] PyO
 }
 
 static PyMethodDef FrameSnapshot_methods[] = {
-    {"__class_getitem__", FrameSnapshot_class_getitem, METH_O | METH_CLASS, NULL},
-    {NULL, NULL, 0, NULL}
+    {"__class_getitem__", FrameSnapshot_class_getitem, METH_O | METH_CLASS, nullptr},
+    {nullptr, nullptr, 0, nullptr}
 };
 
 static PyTypeObject FrameSnapshotType = {
-    PyVarObject_HEAD_INIT(NULL, 0)
+    PyVarObject_HEAD_INIT(nullptr, 0)
     .tp_name = "_aleff.FrameSnapshot",
     .tp_doc = "Snapshot of a Python frame chain for multi-shot continuations.",
     .tp_basicsize = sizeof(FrameSnapshotObject),
@@ -137,12 +137,12 @@ static PyTypeObject FrameSnapshotType = {
  * Deep-copy a single _PyInterpreterFrame.
  * All PyObject* references in localsplus are Py_XINCREF'd.
  * f_globals and f_builtins are promoted from borrowed to strong refs.
- * frame_obj is set to NULL (not shared with the original).
+ * frame_obj is set to nullptr (not shared with the original).
  */
 static _aleff_frame_copy_t
 copy_single_frame(_aleff_frame_t *src)
 {
-    _aleff_frame_copy_t result = {NULL, 0};
+    _aleff_frame_copy_t result = {nullptr, 0};
 
     PyCodeObject *code = _aleff_frame_get_code(src);
     int num_slots = _aleff_frame_num_slots(code);
@@ -151,7 +151,7 @@ copy_single_frame(_aleff_frame_t *src)
                       + (num_slots - 1) * sizeof(PyObject *);
 
     _aleff_frame_t *dst = (_aleff_frame_t *)PyMem_Malloc(frame_size);
-    if (dst == NULL) {
+    if (dst == nullptr) {
         PyErr_NoMemory();
         return result;
     }
@@ -168,10 +168,10 @@ copy_single_frame(_aleff_frame_t *src)
     Py_XINCREF(dst->f_locals);
 
     /* Don't share the PyFrameObject */
-    dst->frame_obj = NULL;
+    dst->frame_obj = nullptr;
 
     /* previous will be linked later */
-    dst->previous = NULL;
+    dst->previous = nullptr;
 
     /* owner: mark as owned by thread (will be cleaned up manually) */
     dst->owner = FRAME_OWNED_BY_THREAD;
@@ -184,7 +184,7 @@ copy_single_frame(_aleff_frame_t *src)
         Py_XINCREF(dst->localsplus[i]);
     }
     for (int i = stacktop; i < num_slots; i++) {
-        dst->localsplus[i] = NULL;
+        dst->localsplus[i] = nullptr;
     }
 
     result.frame = dst;
@@ -196,7 +196,7 @@ copy_single_frame(_aleff_frame_t *src)
  * Snapshot the Python frame chain from the current thread state.
  *
  * Captures frames from the current frame up to (but not including)
- * the frame specified by `boundary` (or all frames if boundary is NULL).
+ * the frame specified by `boundary` (or all frames if boundary is nullptr).
  *
  * The `depth` parameter limits how many frames to capture.
  * Pass -1 for unlimited.
@@ -206,9 +206,9 @@ create_snapshot(PyFrameObject *boundary_frame, int max_depth)
 {
     PyThreadState *tstate = PyThreadState_Get();
     PyFrameObject *py_frame = PyThreadState_GetFrame(tstate);
-    if (py_frame == NULL) {
+    if (py_frame == nullptr) {
         PyErr_SetString(PyExc_RuntimeError, "no current frame");
-        return NULL;
+        return nullptr;
     }
 
     /* Count frames.
@@ -217,7 +217,7 @@ create_snapshot(PyFrameObject *boundary_frame, int max_depth)
     {
         PyFrameObject *f = py_frame;
         Py_INCREF(f);  /* hold our own ref for the loop */
-        while (f != NULL && f != boundary_frame) {
+        while (f != nullptr && f != boundary_frame) {
             if (max_depth >= 0 && count >= max_depth) {
                 Py_DECREF(f);
                 break;
@@ -227,11 +227,11 @@ create_snapshot(PyFrameObject *boundary_frame, int max_depth)
             Py_DECREF(f);
             f = prev;
         }
-        /* If loop ended by boundary or NULL (not by max_depth break),
+        /* If loop ended by boundary or nullptr (not by max_depth break),
          * f was already DECREF'd inside the loop via prev/DECREF pattern,
-         * or f is NULL. The boundary case: f == boundary_frame and we
+         * or f is nullptr. The boundary case: f == boundary_frame and we
          * exited the while condition, so f still has our ref. */
-        if (f != NULL && !(max_depth >= 0 && count >= max_depth)) {
+        if (f != nullptr && !(max_depth >= 0 && count >= max_depth)) {
             Py_DECREF(f);
         }
     }
@@ -239,21 +239,21 @@ create_snapshot(PyFrameObject *boundary_frame, int max_depth)
     if (count == 0) {
         PyErr_SetString(PyExc_RuntimeError, "no frames to snapshot");
         Py_DECREF(py_frame);
-        return NULL;
+        return nullptr;
     }
 
     FrameSnapshotObject *snapshot = PyObject_New(FrameSnapshotObject, &FrameSnapshotType);
-    if (snapshot == NULL) {
+    if (snapshot == nullptr) {
         Py_DECREF(py_frame);
-        return NULL;
+        return nullptr;
     }
 
     snapshot->frames = (_aleff_frame_copy_t *)PyMem_Calloc(count, sizeof(_aleff_frame_copy_t));
-    if (snapshot->frames == NULL) {
+    if (snapshot->frames == nullptr) {
         PyErr_NoMemory();
         Py_DECREF(snapshot);
         Py_DECREF(py_frame);
-        return NULL;
+        return nullptr;
     }
     snapshot->num_frames = count;
 
@@ -275,19 +275,19 @@ create_snapshot(PyFrameObject *boundary_frame, int max_depth)
             );
 
             snapshot->frames[i] = copy_single_frame(internal);
-            if (snapshot->frames[i].frame == NULL) {
+            if (snapshot->frames[i].frame == nullptr) {
                 snapshot->num_frames = i;
                 Py_DECREF(f);
                 Py_DECREF(snapshot);
                 Py_DECREF(py_frame);
-                return NULL;
+                return nullptr;
             }
 
             PyFrameObject *prev = PyFrame_GetBack(f);  /* new ref */
             Py_DECREF(f);
             f = prev;
         }
-        Py_XDECREF(f);  /* may be NULL if chain ended */
+        Py_XDECREF(f);  /* may be nullptr if chain ended */
     }
 
     #undef F_FRAME_OFFSET
@@ -298,7 +298,7 @@ create_snapshot(PyFrameObject *boundary_frame, int max_depth)
     for (int i = 0; i < count - 1; i++) {
         snapshot->frames[i].frame->previous = snapshot->frames[i + 1].frame;
     }
-    /* Outermost frame's previous = NULL (will be set during restore) */
+    /* Outermost frame's previous = nullptr (will be set during restore) */
 
     return snapshot;
 }
@@ -308,7 +308,7 @@ create_snapshot(PyFrameObject *boundary_frame, int max_depth)
  * ======================================================================== */
 
 typedef PyObject *(*evalframe_fn_t)(PyThreadState *, void *, int);
-static evalframe_fn_t _evalframe = NULL;
+static evalframe_fn_t _evalframe = nullptr;
 
 /* ========================================================================
  * Frame chain restoration and continuation resume
@@ -351,7 +351,7 @@ inject_resume_value(_aleff_frame_t *frame, PyObject *value)
             int idx = frame->stacktop - items_to_pop + i;
             if (idx >= 0) {
                 Py_XDECREF(frame->localsplus[idx]);
-                frame->localsplus[idx] = NULL;
+                frame->localsplus[idx] = nullptr;
             }
         }
         frame->stacktop -= items_to_pop;
@@ -374,7 +374,7 @@ inject_resume_value(_aleff_frame_t *frame, PyObject *value)
 
 /*
  * Copy a frame onto the thread data stack.
- * Returns a pointer to the frame on the data stack, or NULL on error.
+ * Returns a pointer to the frame on the data stack, or nullptr on error.
  * The caller must ensure there's enough space (or handle growth).
  */
 static _aleff_frame_t *
@@ -389,7 +389,7 @@ push_frame_to_datastack(PyThreadState *tstate, _aleff_frame_t *src, int num_slot
     if (tstate->datastack_top + nslots > tstate->datastack_limit) {
         PyErr_SetString(PyExc_RuntimeError,
             "thread data stack too small for frame restoration");
-        return NULL;
+        return nullptr;
     }
 
     _aleff_frame_t *dst = (_aleff_frame_t *)tstate->datastack_top;
@@ -402,7 +402,7 @@ push_frame_to_datastack(PyThreadState *tstate, _aleff_frame_t *src, int num_slot
     Py_XINCREF(dst->f_globals);
     Py_XINCREF(dst->f_builtins);
     Py_XINCREF(dst->f_locals);
-    dst->frame_obj = NULL;
+    dst->frame_obj = nullptr;
     dst->owner = FRAME_OWNED_BY_THREAD;
 
     int stacktop = dst->stacktop;
@@ -410,7 +410,7 @@ push_frame_to_datastack(PyThreadState *tstate, _aleff_frame_t *src, int num_slot
         Py_XINCREF(dst->localsplus[i]);
     }
     for (int i = stacktop; i < num_slots; i++) {
-        dst->localsplus[i] = NULL;
+        dst->localsplus[i] = nullptr;
     }
 
     return dst;
@@ -434,12 +434,12 @@ _aleff_snapshot_frames([[maybe_unused]] PyObject *self, PyObject *args)
 {
     int depth = -1;
     if (!PyArg_ParseTuple(args, "|i", &depth)) {
-        return NULL;
+        return nullptr;
     }
 
-    FrameSnapshotObject *snapshot = create_snapshot(NULL, depth);
-    if (snapshot == NULL) {
-        return NULL;
+    FrameSnapshotObject *snapshot = create_snapshot(nullptr, depth);
+    if (snapshot == nullptr) {
+        return nullptr;
     }
 
     return (PyObject *)snapshot;
@@ -470,18 +470,18 @@ _aleff_restore_continuation([[maybe_unused]] PyObject *self, PyObject *args)
     int skip = 1;
 
     if (!PyArg_ParseTuple(args, "O!O|i", &FrameSnapshotType, &snapshot, &value, &skip))
-        return NULL;
+        return nullptr;
 
-    if (_evalframe == NULL) {
+    if (_evalframe == nullptr) {
         PyErr_SetString(PyExc_RuntimeError,
             "_PyEval_EvalFrameDefault not available (dlsym failed at init)");
-        return NULL;
+        return nullptr;
     }
 
     int num = snapshot->num_frames - skip;
     if (num <= 0) {
         PyErr_SetString(PyExc_ValueError, "no frames to restore");
-        return NULL;
+        return nullptr;
     }
 
     PyThreadState *tstate = PyThreadState_Get();
@@ -495,16 +495,16 @@ _aleff_restore_continuation([[maybe_unused]] PyObject *self, PyObject *args)
     _aleff_frame_t *frames_on_stack[128];  /* reasonable limit */
     if (num > 128) {
         PyErr_SetString(PyExc_RuntimeError, "frame chain too deep (>128)");
-        return NULL;
+        return nullptr;
     }
 
     for (int i = num - 1; i >= 0; i--) {
         _aleff_frame_copy_t *src = &snapshot->frames[i + skip];
         _aleff_frame_t *f = push_frame_to_datastack(tstate, src->frame, src->num_slots);
-        if (f == NULL) {
+        if (f == nullptr) {
             /* Restore data stack and bail */
             tstate->datastack_top = saved_datastack_top;
-            return NULL;
+            return nullptr;
         }
         frames_on_stack[i] = f;
     }
@@ -513,8 +513,8 @@ _aleff_restore_continuation([[maybe_unused]] PyObject *self, PyObject *args)
     for (int i = 0; i < num - 1; i++) {
         frames_on_stack[i]->previous = frames_on_stack[i + 1];
     }
-    /* Outermost frame's previous = NULL (eval will set it to entry_frame) */
-    frames_on_stack[num - 1]->previous = NULL;
+    /* Outermost frame's previous = nullptr (eval will set it to entry_frame) */
+    frames_on_stack[num - 1]->previous = nullptr;
 
     /* Inject the resume value into the innermost frame */
     inject_resume_value(frames_on_stack[0], value);
@@ -528,17 +528,17 @@ _aleff_restore_continuation([[maybe_unused]] PyObject *self, PyObject *args)
      * Instead, we eval each frame individually and propagate the
      * return value to the next outer frame by pushing it onto
      * the outer frame's stack. */
-    PyObject *result = NULL;
+    PyObject *result = nullptr;
 
     for (int i = 0; i < num; i++) {
         _aleff_frame_t *frame = frames_on_stack[i];
 
         /* Disconnect from chain so eval's entry_frame doesn't conflict */
-        frame->previous = NULL;
+        frame->previous = nullptr;
 
         result = _evalframe(tstate, frame, 0);
 
-        if (result == NULL) {
+        if (result == nullptr) {
             /* Exception — propagate it */
             break;
         }
@@ -548,7 +548,7 @@ _aleff_restore_continuation([[maybe_unused]] PyObject *self, PyObject *args)
             _aleff_frame_t *outer = frames_on_stack[i + 1];
             inject_resume_value(outer, result);
             Py_DECREF(result);  /* inject_resume_value INCREFs */
-            result = NULL;
+            result = nullptr;
         }
     }
 
@@ -571,7 +571,7 @@ _aleff_snapshot_num_frames([[maybe_unused]] PyObject *self, PyObject *arg)
 {
     if (!Py_IS_TYPE(arg, &FrameSnapshotType)) {
         PyErr_SetString(PyExc_TypeError, "expected a FrameSnapshot");
-        return NULL;
+        return nullptr;
     }
     FrameSnapshotObject *snapshot = (FrameSnapshotObject *)arg;
     return PyLong_FromLong(snapshot->num_frames);
@@ -585,7 +585,7 @@ static PyMethodDef _aleff_methods[] = {
     {"snapshot_frames", _aleff_snapshot_frames, METH_VARARGS, snapshot_frames_doc},
     {"snapshot_num_frames", _aleff_snapshot_num_frames, METH_O, snapshot_num_frames_doc},
     {"restore_continuation", _aleff_restore_continuation, METH_VARARGS, restore_continuation_doc},
-    {NULL, NULL, 0, NULL}
+    {nullptr, nullptr, 0, nullptr}
 };
 
 static struct PyModuleDef _aleff_module = {
@@ -610,23 +610,23 @@ PyInit__aleff(void)
     /* Not fatal if not found — restore_continuation will raise at call time */
 
     if (PyType_Ready(&FrameSnapshotType) < 0)
-        return NULL;
+        return nullptr;
 
     PyObject *m = PyModule_Create(&_aleff_module);
-    if (m == NULL)
-        return NULL;
+    if (m == nullptr)
+        return nullptr;
 
     Py_INCREF(&FrameSnapshotType);
     if (PyModule_AddObject(m, "FrameSnapshot", (PyObject *)&FrameSnapshotType) < 0) {
         Py_DECREF(&FrameSnapshotType);
         Py_DECREF(m);
-        return NULL;
+        return nullptr;
     }
 
     /* Export whether restore_continuation is available */
-    if (PyModule_AddIntConstant(m, "HAS_RESTORE", _evalframe != NULL) < 0) {
+    if (PyModule_AddIntConstant(m, "HAS_RESTORE", _evalframe != nullptr) < 0) {
         Py_DECREF(m);
-        return NULL;
+        return nullptr;
     }
 
     return m;
