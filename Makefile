@@ -5,8 +5,8 @@ LDFLAGS := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_va
 CC ?= gcc
 CFLAGS ?= -std=c2x -Wall -Wextra -Wpedantic -O2 -fPIC
 
-TARGET = src/aleff1/_aleff$(EXT_SUFFIX)
-SRC = src/aleff1/_aleff.c
+TARGET = src/aleff/_aleff$(EXT_SUFFIX)
+SRC = src/aleff/_aleff.c
 
 .PHONY: build clean install test
 

@@ -4,7 +4,7 @@ import sys
 
 import pytest
 
-from aleff1._aleff import FrameSnapshot, snapshot_frames, snapshot_num_frames
+from aleff._aleff import FrameSnapshot, snapshot_frames, snapshot_num_frames
 
 
 # ---------------------------------------------------------------------------
@@ -14,7 +14,7 @@ from aleff1._aleff import FrameSnapshot, snapshot_frames, snapshot_num_frames
 
 class TestModuleAvailability:
     def test_import(self):
-        import aleff1._aleff  # noqa: F401
+        import aleff._aleff  # noqa: F401
 
     def test_snapshot_type_exists(self):
         assert FrameSnapshot is not None
