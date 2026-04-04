@@ -5,6 +5,7 @@ setup(
         Extension(
             "aleff._aleff",
             sources=["src/aleff/_aleff.c"],
+            extra_compile_args=["-std=c2x"],
         ),
     ],
 )

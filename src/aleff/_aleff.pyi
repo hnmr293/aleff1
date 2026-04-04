@@ -1,5 +1,6 @@
 """Type stubs for the _aleff C extension module."""
 
+import types
 from typing import Any
 
 class FrameSnapshot[R, V]:
@@ -9,6 +10,7 @@ class FrameSnapshot[R, V]:
         R: The type of the resume value (injected at restoration).
         V: The type of the computation's final result.
     """
+
     ...
 
 def snapshot_frames(depth: int = -1) -> FrameSnapshot[Any, Any]:
@@ -22,6 +24,18 @@ def snapshot_frames(depth: int = -1) -> FrameSnapshot[Any, Any]:
 
     Raises:
         RuntimeError: If depth is 0 or no frames are available.
+    """
+    ...
+
+def snapshot_from_frame(frame: types.FrameType, depth: int = -1) -> FrameSnapshot[Any, Any]:
+    """Capture a frame chain starting from the given frame object.
+
+    The frame should be from a suspended greenlet (gr_frame) so that
+    stacktop values are valid.
+
+    Parameters:
+        frame: A frame object (e.g. greenlet.gr_frame).
+        depth: Maximum number of frames to capture. -1 for all.
     """
     ...
 

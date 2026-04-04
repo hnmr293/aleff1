@@ -176,14 +176,38 @@ copy_single_frame(_aleff_frame_t *src)
     /* owner: mark as owned by thread (will be cleaned up manually) */
     dst->owner = FRAME_OWNED_BY_THREAD;
 
-    /* INCREF only valid localsplus entries (0..stacktop-1).
-     * Slots from stacktop onward are the unused portion of the value stack
-     * and may contain stale/dangling pointers (CPython's POP() doesn't null them). */
-    int stacktop = dst->stacktop;
-    for (int i = 0; i < stacktop; i++) {
+    /* INCREF localsplus entries.
+     *
+     * CPython 3.12 sets stacktop = -1 while a frame is actively executing
+     * (the real stack pointer is kept in a register). stacktop is only
+     * written with a valid value when the frame is deactivated (yield, etc.).
+     *
+     * Since snapshot_frames() is called from within the eval loop,
+     * stacktop will be -1 for active frames. In this case we must
+     * INCREF all slots (locals + cells + value stack).
+     *
+     * When stacktop >= 0 (deactivated frame), only slots 0..stacktop-1
+     * are valid; the rest may contain stale pointers from POP(). */
+    /* INCREF localsplus entries.
+     *
+     * CPython 3.12 sets stacktop = -1 while a frame is actively executing
+     * (the real stack pointer lives in a register). In this case the
+     * value stack slots still contain valid PyObject pointers.
+     *
+     * When stacktop >= 0 (deactivated frame), slots 0..stacktop-1 are
+     * valid. Slots beyond stacktop may contain stale pointers left by
+     * the eval loop's POP() macro (which doesn't null popped slots). */
+    /* When stacktop >= 0: slots 0..stacktop-1 are valid.
+     * When stacktop == -1 (active frame): only locals/cells/freevars
+     * (0..co_nlocalsplus-1) are safe. The value stack portion may
+     * contain stale pointers from the eval loop. */
+    int valid_slots = dst->stacktop >= 0
+        ? dst->stacktop
+        : code->co_nlocalsplus;
+    for (int i = 0; i < valid_slots; i++) {
         Py_XINCREF(dst->localsplus[i]);
     }
-    for (int i = stacktop; i < num_slots; i++) {
+    for (int i = valid_slots; i < num_slots; i++) {
         dst->localsplus[i] = nullptr;
     }
 
@@ -318,53 +342,53 @@ static evalframe_fn_t _evalframe = nullptr;
  * Inject resume value into a frame, simulating the return from a CALL.
  *
  * The frame was suspended mid-CALL (calling the effect).
- * Two CALL dispatch paths leave the frame in different states:
  *
- * 1. Inline dispatch (CALL_PY_EXACT_ARGS, for plain function calls):
- *    - Stack already shrunk (callable + args removed)
- *    - prev_instr at last CACHE entry (opcode 0)
- *    - Just push the resume value.
+ * CPython 3.12 sets stacktop = -1 while frames are active (the real
+ * stack pointer lives in a register). We use the opcode at prev_instr
+ * to determine the CALL dispatch path:
  *
- * 2. Generic CALL (for __call__ objects, bound methods, etc.):
- *    - Stack still has callable + self_or_null + args
- *    - prev_instr at the CALL instruction itself (opcode 171)
- *    - Pop args, advance prev_instr, push resume value.
+ * - opcode == 171 (CALL): generic path. Stack has callable + args,
+ *   prev_instr at the CALL instruction. Need to pop args and advance.
  *
- * We distinguish the two by checking the opcode at prev_instr.
+ * - other opcode (CACHE=0, or specialized CALL variant): inline dispatch.
+ *   Stack already shrunk, prev_instr past CACHE entries. Just push value.
+ *
+ * In both cases, we set stacktop to co_nlocalsplus (value stack base)
+ * before pushing, since the original stacktop may be -1 (invalid).
  */
 static void
 inject_resume_value(_aleff_frame_t *frame, PyObject *value)
 {
+    PyCodeObject *code = _aleff_frame_get_code(frame);
+    int value_stack_base = code->co_nlocalsplus;
     uint8_t opcode = (*frame->prev_instr) & 0xFF;
 
-    /* CALL opcode in CPython 3.12 = 171 */
     /* CALL instruction size: 1 (CALL) + 3 (CACHE entries) = 4 codeunits */
+    #define CALL_OPCODE 171
     #define CALL_TOTAL_SIZE 4
 
-    if (opcode == 171) {
-        /* Generic CALL path: stack has callable + args, prev_instr at CALL */
+    if (opcode == CALL_OPCODE) {
+        /* Generic CALL path: stack has callable + args at indices
+         * value_stack_base .. value_stack_base + oparg + 1.
+         * Pop them all. */
         uint8_t oparg = (*frame->prev_instr >> 8) & 0xFF;
-        int items_to_pop = oparg + 2;  /* callable + self_or_null + args */
-
-        /* Pop CALL arguments from the stack */
-        for (int i = 0; i < items_to_pop; i++) {
-            int idx = frame->stacktop - items_to_pop + i;
-            if (idx >= 0) {
-                Py_XDECREF(frame->localsplus[idx]);
-                frame->localsplus[idx] = nullptr;
-            }
+        int call_items = oparg + 2;  /* callable + self_or_null + args */
+        for (int i = 0; i < call_items; i++) {
+            Py_XDECREF(frame->localsplus[value_stack_base + i]);
+            frame->localsplus[value_stack_base + i] = nullptr;
         }
-        frame->stacktop -= items_to_pop;
 
-        /* Advance prev_instr past CALL + CACHE entries.
-         * Generic CALL may not set return_offset, so we use the known
-         * instruction size (CALL + 3 CACHE = 4 codeunits).
-         * eval loop resumes at prev_instr + 1. */
+        /* Advance prev_instr past CALL + CACHE entries. */
         frame->prev_instr += CALL_TOTAL_SIZE - 1;
     }
-    /* else: inline dispatch path — stack and prev_instr already correct */
+    /* else: inline dispatch — stack already shrunk, prev_instr correct */
 
+    #undef CALL_OPCODE
     #undef CALL_TOTAL_SIZE
+
+    /* Set stacktop to value stack base (locals are preserved,
+     * value stack is empty after popping CALL args or inline dispatch) */
+    frame->stacktop = value_stack_base;
 
     /* Push the resume value */
     Py_INCREF(value);
@@ -405,12 +429,10 @@ push_frame_to_datastack(PyThreadState *tstate, _aleff_frame_t *src, int num_slot
     dst->frame_obj = nullptr;
     dst->owner = FRAME_OWNED_BY_THREAD;
 
-    int stacktop = dst->stacktop;
-    for (int i = 0; i < stacktop; i++) {
+    /* Source is from a snapshot where stale slots are already nullified.
+     * INCREF all non-null entries. */
+    for (int i = 0; i < num_slots; i++) {
         Py_XINCREF(dst->localsplus[i]);
-    }
-    for (int i = stacktop; i < num_slots; i++) {
-        dst->localsplus[i] = nullptr;
     }
 
     return dst;
@@ -521,44 +543,128 @@ _aleff_restore_continuation([[maybe_unused]] PyObject *self, PyObject *args)
 
     /* Execute frames one at a time, from innermost to outermost.
      *
-     * We can't pass the whole chain to a single eval call because
-     * _PyEval_EvalFrameDefault overwrites frame->previous with its
-     * internal entry_frame sentinel.
+     * _PyEval_EvalFrameDefault overwrites the passed frame's `previous`
+     * with its internal entry_frame sentinel, so we can't pass the whole
+     * chain. Instead we eval each frame individually.
      *
-     * Instead, we eval each frame individually and propagate the
-     * return value to the next outer frame by pushing it onto
-     * the outer frame's stack. */
+     * After each frame completes, we inject its return value into the
+     * next outer frame using inject_resume_value, which handles both
+     * inline dispatch and generic CALL stack states. */
     PyObject *result = nullptr;
 
     for (int i = 0; i < num; i++) {
         _aleff_frame_t *frame = frames_on_stack[i];
-
-        /* Disconnect from chain so eval's entry_frame doesn't conflict */
         frame->previous = nullptr;
 
         result = _evalframe(tstate, frame, 0);
 
         if (result == nullptr) {
-            /* Exception — propagate it */
             break;
         }
 
-        /* If there's a next (outer) frame, push result onto its stack */
         if (i + 1 < num) {
             _aleff_frame_t *outer = frames_on_stack[i + 1];
             inject_resume_value(outer, result);
-            Py_DECREF(result);  /* inject_resume_value INCREFs */
+            Py_DECREF(result);
             result = nullptr;
         }
     }
 
-    /* Restore the data stack top.
-     * The eval loop already popped each frame via _PyThreadState_PopFrame,
-     * but our frames were pushed contiguously, so we restore to the
-     * saved position to be safe. */
+    /* Restore the data stack top. */
     tstate->datastack_top = saved_datastack_top;
 
     return result;
+}
+
+PyDoc_STRVAR(snapshot_from_frame_doc,
+"snapshot_from_frame(frame, depth=-1)\n"
+"--\n\n"
+"Capture a frame chain starting from the given frame object.\n"
+"The frame should be from a suspended greenlet (gr_frame) so that\n"
+"stacktop values are valid.\n"
+"\n"
+"Parameters:\n"
+"  frame: A frame object (e.g. greenlet.gr_frame).\n"
+"  depth: Maximum number of frames to capture. -1 for all.\n");
+
+static PyObject *
+_aleff_snapshot_from_frame([[maybe_unused]] PyObject *self, PyObject *args)
+{
+    PyFrameObject *start_frame;
+    int depth = -1;
+    if (!PyArg_ParseTuple(args, "O!|i", &PyFrame_Type, &start_frame, &depth))
+        return nullptr;
+
+    /* Count frames */
+    int count = 0;
+    {
+        PyFrameObject *f = start_frame;
+        Py_INCREF(f);
+        while (f != nullptr) {
+            if (depth >= 0 && count >= depth) {
+                Py_DECREF(f);
+                break;
+            }
+            count++;
+            PyFrameObject *prev = PyFrame_GetBack(f);
+            Py_DECREF(f);
+            f = prev;
+        }
+        if (f != nullptr && !(depth >= 0 && count >= depth)) {
+            Py_DECREF(f);
+        }
+    }
+
+    if (count == 0) {
+        PyErr_SetString(PyExc_RuntimeError, "no frames to snapshot");
+        return nullptr;
+    }
+
+    FrameSnapshotObject *snapshot = PyObject_New(FrameSnapshotObject, &FrameSnapshotType);
+    if (snapshot == nullptr)
+        return nullptr;
+
+    snapshot->frames = (_aleff_frame_copy_t *)PyMem_Calloc(count, sizeof(_aleff_frame_copy_t));
+    if (snapshot->frames == nullptr) {
+        PyErr_NoMemory();
+        Py_DECREF(snapshot);
+        return nullptr;
+    }
+    snapshot->num_frames = count;
+
+    #define F_FRAME_OFFSET (sizeof(PyObject) + sizeof(PyFrameObject *))
+
+    {
+        PyFrameObject *f = start_frame;
+        Py_INCREF(f);
+        for (int i = 0; i < count; i++) {
+            _aleff_frame_t *internal = *(_aleff_frame_t **)(
+                (char *)f + F_FRAME_OFFSET
+            );
+
+            snapshot->frames[i] = copy_single_frame(internal);
+            if (snapshot->frames[i].frame == nullptr) {
+                snapshot->num_frames = i;
+                Py_DECREF(f);
+                Py_DECREF(snapshot);
+                return nullptr;
+            }
+
+            PyFrameObject *prev = PyFrame_GetBack(f);
+            Py_DECREF(f);
+            f = prev;
+        }
+        Py_XDECREF(f);
+    }
+
+    #undef F_FRAME_OFFSET
+
+    /* Link copied frames */
+    for (int i = 0; i < count - 1; i++) {
+        snapshot->frames[i].frame->previous = snapshot->frames[i + 1].frame;
+    }
+
+    return (PyObject *)snapshot;
 }
 
 PyDoc_STRVAR(snapshot_num_frames_doc,
@@ -583,6 +689,7 @@ _aleff_snapshot_num_frames([[maybe_unused]] PyObject *self, PyObject *arg)
 
 static PyMethodDef _aleff_methods[] = {
     {"snapshot_frames", _aleff_snapshot_frames, METH_VARARGS, snapshot_frames_doc},
+    {"snapshot_from_frame", _aleff_snapshot_from_frame, METH_VARARGS, snapshot_from_frame_doc},
     {"snapshot_num_frames", _aleff_snapshot_num_frames, METH_O, snapshot_num_frames_doc},
     {"restore_continuation", _aleff_restore_continuation, METH_VARARGS, restore_continuation_doc},
     {nullptr, nullptr, 0, nullptr}
