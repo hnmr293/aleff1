@@ -8,9 +8,14 @@ CFLAGS ?= -std=c2x -Wall -Wextra -Wpedantic -O2 -fPIC
 TARGET = src/aleff/_aleff$(EXT_SUFFIX)
 SRC = src/aleff/_aleff.c
 
-.PHONY: build clean install test
+DEBUG_CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O0 -g3 -fPIC
+
+.PHONY: build debug clean install test
 
 build: $(TARGET)
+
+debug: $(SRC)
+	$(CC) $(DEBUG_CFLAGS) -shared -I$(INCLUDE) -o $(TARGET) $<
 
 $(TARGET): $(SRC)
 	$(CC) $(CFLAGS) -shared -I$(INCLUDE) -o $@ $<
