@@ -680,3 +680,37 @@ class TestMultiShotMixed:
 
         result = await h_outer(inner)
         assert result == [101, 102]
+
+    @pytest.mark.asyncio
+    async def test_async_oneshot_inside_sync_multishot(self):
+        """Async one-shot handler wraps sync multi-shot handler.
+
+        The sync handler's effect is performed inside the async handler's
+        caller.  _drive_async must detect the sync handler and create a
+        sync Resume instead of ResumeAsync.
+        """
+        choose: Effect[[], int] = effect("choose")
+        get_base: Effect[[], int] = effect("get_base")
+
+        h_sync: handler[list[int]] = create_handler(choose)
+
+        @h_sync.on(choose)
+        def _choose(k: Resume[int, list[int]]):
+            return k(1) + k(2)
+
+        h_async: async_handler[list[int]] = create_async_handler(get_base)
+
+        @h_async.on(get_base)
+        async def _get_base(k: ResumeAsync[int, list[int]]):
+            return await k(100)
+
+        def body():
+            base = get_base()
+            x = choose()
+            return [base + x]
+
+        async def outer():
+            return h_sync(body)
+
+        result = await h_async(outer)
+        assert result == [101, 102]

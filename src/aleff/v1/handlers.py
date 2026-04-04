@@ -1,7 +1,7 @@
 from asyncio import Lock, iscoroutine
 from contextvars import ContextVar, copy_context
 from inspect import iscoroutinefunction
-from typing import Any, Callable, cast, Coroutine
+from typing import Any, Awaitable, Callable, cast, Coroutine
 import greenlet as gl
 from .intf import (
     Effect,
@@ -151,9 +151,27 @@ def _drive[V](caller_gl: Any, value: V | EffectContext[..., Any]) -> V:
     effect, handler, fn, args, kwargs = _pre_drive(caller_gl, cast(EffectContext[..., Any], value))
 
     if isinstance(handler, _async_handler):
-        # async handler found in sync context — relay to parent greenlet
+        # async handler found in sync context — relay to parent greenlet.
+        #
+        # Normally, when a sync handler is nested inside an async handler,
+        # the sync handler's greenlet has a parent greenlet (the async
+        # handler's caller greenlet) that can relay the effect upward.
+        #
+        # However, if the async handler's caller is an `async def`, the
+        # greenlet returns a coroutine immediately and the coroutine body
+        # runs in the root greenlet (via `await` in _drive_async).  In
+        # that case no parent exists to relay to.
+        #
+        # To fix this, make the caller passed to the async handler a
+        # regular (sync) function instead of an `async def`.
         parent = gl.getcurrent().parent
-        assert parent is not None
+        if parent is None:
+            raise RuntimeError(
+                f"effect {effect} is handled by an async handler, but"
+                " cannot be relayed from the current sync context."
+                " The caller passed to the outer async handler should"
+                " be a regular function, not an async def."
+            )
         debug(f"||> relay {effect} to async handler")
         resume_value = parent.switch(value)
         v = caller_gl.switch(resume_value)
@@ -179,8 +197,35 @@ def _drive[V](caller_gl: Any, value: V | EffectContext[..., Any]) -> V:
     return v
 
 
-async def _drive_async[V](caller_gl: Any, value: V | EffectContext[..., Any]) -> V:
+class _AwaitRequest[V]:
+    """Wraps an awaitable switched from a bridge greenlet to _drive_async.
+
+    When an async caller is wrapped in a sync bridge greenlet (see
+    _async_handler.__call__), each ``await`` in the original coroutine
+    is translated into ``parent.switch(_AwaitRequest(awaitable))``.
+    _drive_async recognises this sentinel, awaits the inner awaitable,
+    and returns the result to the bridge greenlet.
+    """
+
+    __slots__ = ("awaitable",)
+
+    def __init__(self, awaitable: Awaitable[V]) -> None:
+        self.awaitable = awaitable
+
+
+async def _drive_async[V](caller_gl: Any, value: V | _AwaitRequest[V] | EffectContext[..., Any]) -> V:
     debug("||> @main")
+
+    if isinstance(value, _AwaitRequest):
+        # Bridge greenlet needs an awaitable resolved
+        debug("||> bridge await")
+        req = cast(_AwaitRequest[V], value)
+        try:
+            result = await req.awaitable
+        except BaseException as e:
+            return await _drive_async(caller_gl, caller_gl.throw(e))
+        else:
+            return await _drive_async(caller_gl, caller_gl.switch(result))
 
     if caller_gl.dead:
         # computation finished
@@ -342,7 +387,29 @@ class _async_handler[V](
         await _put_handlers_async(token, self, self._reserved_effects)
 
         try:
-            caller_gl = gl.greenlet(caller)
+            # If the caller is an async function, wrap it in a sync bridge
+            # so that it runs inside a greenlet.  This allows nested sync
+            # handlers to relay async effects through the greenlet parent
+            # chain.  Each ``await`` in the original coroutine is converted
+            # to a parent.switch(_AwaitRequest(...)) which _drive_async
+            # resolves.
+            actual_caller: Callable[[], Any] = caller
+            if iscoroutinefunction(caller):
+                _orig = caller
+
+                def actual_caller() -> Any:
+                    coro = _orig()
+                    value: Any = None
+                    parent = gl.getcurrent().parent
+                    assert parent is not None
+                    try:
+                        while True:
+                            awaitable = coro.send(value)
+                            value = parent.switch(_AwaitRequest(awaitable))
+                    except StopIteration as e:
+                        return e.value
+
+            caller_gl = gl.greenlet(actual_caller)
             caller_gl.gr_context = copy_context()
 
             debug(f"|> @caller | {self}")
