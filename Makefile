@@ -5,8 +5,9 @@ LDFLAGS := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_va
 CC ?= cc
 CFLAGS ?= -std=c2x -Wall -Wextra -Wpedantic -O2 -fPIC
 
-TARGET = src/aleff/_aleff$(EXT_SUFFIX)
-SRC = src/aleff/_aleff.c
+BASE_DIR := src/aleff
+TARGET = $(BASE_DIR)/_aleff$(EXT_SUFFIX)
+SRC = $(BASE_DIR)/_aleff.c
 
 DEBUG_CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O0 -g3 -fPIC
 
@@ -21,7 +22,7 @@ $(TARGET): $(SRC)
 	$(CC) $(CFLAGS) -shared -I$(INCLUDE) -o $@ $<
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(BASE_DIR)/*$(EXT_SUFFIX)
 
 install:
 	uv pip install -e ".[dev]"
