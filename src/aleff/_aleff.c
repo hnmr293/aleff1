@@ -22,13 +22,133 @@
 #error "_aleff requires Python 3.12 or later"
 #endif
 
-/* CALL opcode value differs between versions (171 in 3.12, 53 in 3.13+). */
+/* Opcode metadata: we need a deopt table to map specialized opcodes
+ * (e.g. CALL_PY_GENERAL) back to their generic base (CALL).
+ *
+ * _PyOpcode_Deopt[] is in internal headers and not exported from
+ * libpython, so we include the header with Py_BUILD_CORE to get the
+ * table definition, then copy it into a file-scoped static array. */
 #if PY_VERSION_HEX >= 0x030d0000
-#include <opcode_ids.h>
+#  include <opcode_ids.h>
+#  define Py_BUILD_CORE
+#  define NEED_OPCODE_METADATA
+#  include <internal/pycore_opcode_metadata.h>
+#  undef NEED_OPCODE_METADATA
+#  undef Py_BUILD_CORE
 #else
-#include <opcode.h>
+#  include <opcode.h>
 #endif
 #define CALL_OPCODE CALL
+
+/* Build a local deopt table.  For opcodes that have no specialization
+ * the entry maps to itself, so unknown opcodes pass through safely. */
+static uint8_t _aleff_opcode_deopt[256];
+
+static void
+_aleff_init_opcode_deopt(void)
+{
+    for (int i = 0; i < 256; i++) {
+        _aleff_opcode_deopt[i] = (uint8_t)i;
+    }
+    /* CALL specializations — all map back to generic CALL. */
+#ifdef CALL_BOUND_METHOD_EXACT_ARGS
+    _aleff_opcode_deopt[CALL_BOUND_METHOD_EXACT_ARGS] = CALL;
+#endif
+#ifdef CALL_PY_EXACT_ARGS
+    _aleff_opcode_deopt[CALL_PY_EXACT_ARGS] = CALL;
+#endif
+#ifdef CALL_PY_GENERAL
+    _aleff_opcode_deopt[CALL_PY_GENERAL] = CALL;
+#endif
+#ifdef CALL_PY_WITH_DEFAULTS
+    _aleff_opcode_deopt[CALL_PY_WITH_DEFAULTS] = CALL;
+#endif
+#ifdef CALL_BOUND_METHOD_GENERAL
+    _aleff_opcode_deopt[CALL_BOUND_METHOD_GENERAL] = CALL;
+#endif
+#ifdef CALL_BUILTIN_CLASS
+    _aleff_opcode_deopt[CALL_BUILTIN_CLASS] = CALL;
+#endif
+#ifdef CALL_BUILTIN_FAST
+    _aleff_opcode_deopt[CALL_BUILTIN_FAST] = CALL;
+#endif
+#ifdef CALL_BUILTIN_FAST_WITH_KEYWORDS
+    _aleff_opcode_deopt[CALL_BUILTIN_FAST_WITH_KEYWORDS] = CALL;
+#endif
+#ifdef CALL_BUILTIN_O
+    _aleff_opcode_deopt[CALL_BUILTIN_O] = CALL;
+#endif
+#ifdef CALL_ISINSTANCE
+    _aleff_opcode_deopt[CALL_ISINSTANCE] = CALL;
+#endif
+#ifdef CALL_LEN
+    _aleff_opcode_deopt[CALL_LEN] = CALL;
+#endif
+#ifdef CALL_LIST_APPEND
+    _aleff_opcode_deopt[CALL_LIST_APPEND] = CALL;
+#endif
+#ifdef CALL_METHOD_DESCRIPTOR_FAST
+    _aleff_opcode_deopt[CALL_METHOD_DESCRIPTOR_FAST] = CALL;
+#endif
+#ifdef CALL_METHOD_DESCRIPTOR_FAST_WITH_KEYWORDS
+    _aleff_opcode_deopt[CALL_METHOD_DESCRIPTOR_FAST_WITH_KEYWORDS] = CALL;
+#endif
+#ifdef CALL_METHOD_DESCRIPTOR_NOARGS
+    _aleff_opcode_deopt[CALL_METHOD_DESCRIPTOR_NOARGS] = CALL;
+#endif
+#ifdef CALL_METHOD_DESCRIPTOR_O
+    _aleff_opcode_deopt[CALL_METHOD_DESCRIPTOR_O] = CALL;
+#endif
+#ifdef CALL_NON_PY_GENERAL
+    _aleff_opcode_deopt[CALL_NON_PY_GENERAL] = CALL;
+#endif
+#ifdef CALL_STR_1
+    _aleff_opcode_deopt[CALL_STR_1] = CALL;
+#endif
+#ifdef CALL_TUPLE_1
+    _aleff_opcode_deopt[CALL_TUPLE_1] = CALL;
+#endif
+#ifdef CALL_TYPE_1
+    _aleff_opcode_deopt[CALL_TYPE_1] = CALL;
+#endif
+#ifdef CALL_ALLOC_AND_ENTER_INIT
+    _aleff_opcode_deopt[CALL_ALLOC_AND_ENTER_INIT] = CALL;
+#endif
+    /* 3.12 names */
+#ifdef CALL_NO_KW_BUILTIN_FAST
+    _aleff_opcode_deopt[CALL_NO_KW_BUILTIN_FAST] = CALL;
+#endif
+#ifdef CALL_NO_KW_BUILTIN_O
+    _aleff_opcode_deopt[CALL_NO_KW_BUILTIN_O] = CALL;
+#endif
+#ifdef CALL_NO_KW_ISINSTANCE
+    _aleff_opcode_deopt[CALL_NO_KW_ISINSTANCE] = CALL;
+#endif
+#ifdef CALL_NO_KW_LEN
+    _aleff_opcode_deopt[CALL_NO_KW_LEN] = CALL;
+#endif
+#ifdef CALL_NO_KW_LIST_APPEND
+    _aleff_opcode_deopt[CALL_NO_KW_LIST_APPEND] = CALL;
+#endif
+#ifdef CALL_NO_KW_METHOD_DESCRIPTOR_FAST
+    _aleff_opcode_deopt[CALL_NO_KW_METHOD_DESCRIPTOR_FAST] = CALL;
+#endif
+#ifdef CALL_NO_KW_METHOD_DESCRIPTOR_NOARGS
+    _aleff_opcode_deopt[CALL_NO_KW_METHOD_DESCRIPTOR_NOARGS] = CALL;
+#endif
+#ifdef CALL_NO_KW_METHOD_DESCRIPTOR_O
+    _aleff_opcode_deopt[CALL_NO_KW_METHOD_DESCRIPTOR_O] = CALL;
+#endif
+#ifdef CALL_NO_KW_STR_1
+    _aleff_opcode_deopt[CALL_NO_KW_STR_1] = CALL;
+#endif
+#ifdef CALL_NO_KW_TUPLE_1
+    _aleff_opcode_deopt[CALL_NO_KW_TUPLE_1] = CALL;
+#endif
+#ifdef CALL_NO_KW_TYPE_1
+    _aleff_opcode_deopt[CALL_NO_KW_TYPE_1] = CALL;
+#endif
+}
 
 /* ========================================================================
  * _PyInterpreterFrame layout for Python 3.12
@@ -369,29 +489,33 @@ inject_resume_value(_aleff_frame_t *frame, PyObject *value)
 {
     PyCodeObject *code = _aleff_frame_get_code(frame);
     int value_stack_base = code->co_nlocalsplus;
-    uint8_t opcode = (*frame->prev_instr) & 0xFF;
+    uint8_t raw_opcode = (*frame->prev_instr) & 0xFF;
+    uint8_t base_opcode = _aleff_opcode_deopt[raw_opcode];
 
     /* CALL instruction size: 1 (CALL) + 3 (CACHE entries) = 4 codeunits.
      * Same in both 3.12 and 3.13. */
     #define CALL_TOTAL_SIZE 4
 
-    if (opcode == CALL_OPCODE) {
-        /* Generic CALL path: stack has callable + self_or_null + args
-         * at the TOP of the value stack.  Items below (e.g. loop
-         * iterators, partially-evaluated expressions) must be preserved.
-         *
-         * Pop only the CALL arguments from the top, not the whole stack. */
-        uint8_t oparg = (*frame->prev_instr >> 8) & 0xFF;
-        int call_items = oparg + 2;  /* callable + self_or_null + args */
-        int new_top = frame->stacktop - call_items;
-        if (new_top < value_stack_base) {
-            new_top = value_stack_base;
+    if (base_opcode == CALL_OPCODE) {
+        if (frame->stacktop < 0) {
+            /* Active frame (stacktop == -1): the frame is mid-CALL to a
+             * C function via PyObject_Vectorcall.  The eval loop has NOT
+             * shrunk the stack, so callable + self_or_null + args are still
+             * on the value stack.  Pop them before pushing the resume value. */
+            uint8_t oparg = (*frame->prev_instr >> 8) & 0xFF;
+            int call_items = oparg + 2;  /* callable + self_or_null + args */
+            frame->stacktop = value_stack_base + call_items;
+            int new_top = value_stack_base;
+            for (int i = new_top; i < frame->stacktop; i++) {
+                Py_XDECREF(frame->localsplus[i]);
+                frame->localsplus[i] = nullptr;
+            }
+            frame->stacktop = new_top;
         }
-        for (int i = new_top; i < frame->stacktop; i++) {
-            Py_XDECREF(frame->localsplus[i]);
-            frame->localsplus[i] = nullptr;
-        }
-        frame->stacktop = new_top;
+        /* stacktop >= 0: the frame called a Python function via
+         * CALL / CALL_PY_EXACT_ARGS / CALL_PY_GENERAL / etc.
+         * The eval loop already executed STACK_SHRINK(oparg + 2) before
+         * DISPATCH_INLINED, so stacktop is correct.  No cleanup needed. */
 
         /* Advance instruction pointer past CALL + CACHE entries.
          *
@@ -405,11 +529,9 @@ inject_resume_value(_aleff_frame_t *frame, PyObject *value)
         frame->prev_instr += CALL_TOTAL_SIZE - 1;
 #endif
     } else {
-        /* Non-CALL opcode (CACHE entry or specialised variant).
-         * If stacktop is valid (>= 0), it was saved by the eval loop
-         * when the frame called a Python function.  Preserve it.
-         * Only reset to value_stack_base when stacktop is -1 (active
-         * frame that went through a C-function call path). */
+        /* Non-CALL opcode.
+         * If stacktop >= 0, the eval loop saved a valid stack pointer.
+         * If stacktop == -1, this is an active frame; reset to base. */
         if (frame->stacktop < 0) {
             frame->stacktop = value_stack_base;
         }
@@ -754,6 +876,8 @@ static struct PyModuleDef _aleff_module = {
 PyMODINIT_FUNC
 PyInit__aleff(void)
 {
+    _aleff_init_opcode_deopt();
+
     /* Look up _PyEval_EvalFrameDefault via dlsym.
      * POSIX guarantees dlsym returns a valid function pointer via void*,
      * but ISO C forbids the cast. Suppress the warning here. */
