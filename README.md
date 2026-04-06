@@ -143,6 +143,22 @@ See [`examples/`](examples/) for demonstrations:
 | `Resume[R, V]` | Sync continuation (`k(value) -> V`) |
 | `ResumeAsync[R, V]` | Async continuation (`await k(value) -> V`) |
 
+## Development
+
+```sh
+# Run tests
+uv run pytest
+
+# Run tests on all supported Python versions
+./run_tests.sh
+
+# Format
+uv run ruff format
+
+# Lint
+uv run pyright
+```
+
 ## License
 
 Apache-2.0
