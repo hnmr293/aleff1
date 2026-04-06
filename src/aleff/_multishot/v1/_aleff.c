@@ -202,7 +202,11 @@ _aleff_stackref_to_obj(_aleff_stackref ref)
 static inline _aleff_stackref
 _aleff_obj_to_stackref(PyObject *obj)
 {
-    return (_aleff_stackref)obj;
+    /* Replicate PyStackRef_FromPyObjectSteal: immortal objects get the
+     * Py_TAG_REFCNT (1) tag bit set via ob_flags. */
+    if (obj == nullptr) return 0;
+    unsigned int tag = ((PyObject *)obj)->ob_flags & _ALEFF_TAG_BITS;
+    return (_aleff_stackref)((uintptr_t)obj | tag);
 }
 
 static inline int
