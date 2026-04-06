@@ -229,6 +229,7 @@ class _handler[V](
 
         try:
             caller_gl = gl.greenlet(caller)
+            caller_gl.gr_context = copy_context()
 
             debug(f"|> @caller | {self}")
 
@@ -293,6 +294,7 @@ class _async_handler[V](
 
         try:
             caller_gl = gl.greenlet(caller)
+            caller_gl.gr_context = copy_context()
 
             debug(f"|> @caller | {self}")
 
