@@ -6,8 +6,6 @@ targets=(
     "3.13"
 )
 
-rm -f src/aleff/_multishot/v1/_aleff.cpython-*.so
-
 for ver in "${targets[@]}"; do
     PYTHON="python$ver" make debug
 done

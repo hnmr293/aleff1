@@ -1,28 +1,18 @@
-PYTHON ?= python3
-EXT_SUFFIX := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_var('EXT_SUFFIX'))")
-INCLUDE := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_path('include'))")
-LDFLAGS := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_var('LDSHARED').split(' ', 1)[1] if sysconfig.get_config_var('LDSHARED') else '')")
-CC ?= cc
-CFLAGS ?= -std=c2x -Wall -Wextra -Wpedantic -O2 -fPIC
-
-BASE_DIR := src/aleff/_multishot/v1
-TARGET = $(BASE_DIR)/_aleff$(EXT_SUFFIX)
-SRC = $(BASE_DIR)/_aleff.c
-
-DEBUG_CFLAGS = -std=c2x -Wall -Wextra -Wpedantic -O0 -g3 -fPIC
+SUBDIRS = src/aleff/_multishot/v1
 
 .PHONY: build debug clean install test
 
-build: $(TARGET)
+PYTHON ?= python3
+export PYTHON
 
-debug: $(SRC)
-	$(CC) $(DEBUG_CFLAGS) -shared -I$(INCLUDE) -o $(TARGET) $<
+build:
+	@for dir in $(SUBDIRS); do $(MAKE) -C $$dir build; done
 
-$(TARGET): $(SRC)
-	$(CC) $(CFLAGS) -shared -I$(INCLUDE) -o $@ $<
+debug:
+	@for dir in $(SUBDIRS); do $(MAKE) -C $$dir debug; done
 
 clean:
-	rm -f $(BASE_DIR)/*$(EXT_SUFFIX)
+	@for dir in $(SUBDIRS); do $(MAKE) -C $$dir clean; done
 
 install:
 	uv pip install -e ".[dev]"
