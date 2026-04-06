@@ -74,6 +74,11 @@ class Handler[V](Protocol):
         """The effects declared for this handler."""
         ...
 
+    @property
+    def shallow(self) -> bool:
+        """Whether this is a shallow handler."""
+        ...
+
     def on[**P, R](self, effect: Effect[P, R]) -> Callable[[EffectHandler[P, V, R]], EffectHandler[P, V, R]]:
         """Register a handler function for *effect*.  Returns a decorator."""
         ...
@@ -107,6 +112,11 @@ class AsyncHandler[V](Protocol):
         """The effects declared for this handler."""
         ...
 
+    @property
+    def shallow(self) -> bool:
+        """Whether this is a shallow handler."""
+        ...
+
     def on[**P, R](
         self,
         effect: Effect[P, R],
@@ -128,5 +138,6 @@ class EffectNotHandledError[**P, R](RuntimeError):
 
     def __init__(self, effect: Effect[P, R]):
         from .misc import eff_str
+
         super().__init__(f"no handler for the effect: {eff_str(effect)}")
         self.effect = effect
