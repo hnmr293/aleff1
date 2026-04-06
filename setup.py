@@ -14,8 +14,8 @@ if not os.path.isfile(os.path.join(header_dir, "Python.h")):
 setup(
     ext_modules=[
         Extension(
-            "aleff._aleff",
-            sources=["src/aleff/_aleff.c"],
+            "aleff._multishot.v1._aleff",
+            sources=["src/aleff/_multishot/v1/_aleff.c"],
             extra_compile_args=["-std=c2x"],
         ),
     ],

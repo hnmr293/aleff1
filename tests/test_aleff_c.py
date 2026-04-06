@@ -6,7 +6,7 @@ from typing import Any
 import pytest
 import greenlet
 
-from aleff._aleff import (
+from aleff._multishot.v1._aleff import (
     FrameSnapshot,
     snapshot_frames,
     snapshot_num_frames,
@@ -22,7 +22,7 @@ from aleff._aleff import (
 
 class TestModuleAvailability:
     def test_import(self):
-        import aleff._aleff  # noqa: F401  # pyright: ignore[reportUnusedImport]
+        import aleff._multishot.v1._aleff  # noqa: F401  # pyright: ignore[reportUnusedImport]
 
     def test_snapshot_type_exists(self):
         assert FrameSnapshot is not None

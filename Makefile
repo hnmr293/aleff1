@@ -5,7 +5,7 @@ LDFLAGS := $(shell $(PYTHON) -c "import sysconfig; print(sysconfig.get_config_va
 CC ?= cc
 CFLAGS ?= -std=c2x -Wall -Wextra -Wpedantic -O2 -fPIC
 
-BASE_DIR := src/aleff
+BASE_DIR := src/aleff/_multishot/v1
 TARGET = $(BASE_DIR)/_aleff$(EXT_SUFFIX)
 SRC = $(BASE_DIR)/_aleff.c
 

@@ -16,7 +16,7 @@ from .intf import (
 )
 from .effects import EffectContext
 from .misc import debug, eff_str
-from .._aleff import FrameSnapshot, restore_continuation, snapshot_from_frame
+from ._aleff import FrameSnapshot, restore_continuation, snapshot_from_frame
 
 
 def create_handler(*effects: Effect[..., Any]) -> Handler[Any]:

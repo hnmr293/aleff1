@@ -1,3 +1,11 @@
+from ._aleff import HAS_RESTORE as _HAS_RESTORE
+
+if not _HAS_RESTORE:
+    raise ImportError(
+        "aleff.multishot requires _PyEval_EvalFrameDefault, which is"
+        " not available in this environment. Use aleff.oneshot instead."
+    )
+
 from .intf import (
     Effect,
     EffectNotHandledError,
