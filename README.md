@@ -1,10 +1,11 @@
 # aleff
 
-Algebraic effects for Python — deep, stateful, multi-shot handlers via greenlet-based delimited continuations.
+Algebraic effects for Python — deep and shallow, stateful, multi-shot handlers via greenlet-based delimited continuations.
 
 ## Features
 
 - **Deep handlers** — effects propagate through nested function calls without annotation
+- **Shallow handlers** — handle an effect once, then delegate re-installation to the handler function; enables state machines, shift0/reset0, and strategy changes between invocations
 - **Stateful handlers** — handler functions can execute code after `resume`, enabling patterns like transactions and reverse-mode AD
 - **Multi-shot continuations** — `resume` can be called multiple times in a single handler, enabling backtracking search, non-determinism, and other advanced patterns
 - **Sync and async** — both synchronous (`Handler`) and asynchronous (`AsyncHandler`) handlers are supported, with transparent bridging between the two
@@ -121,6 +122,8 @@ See [`examples/`](examples/) for demonstrations:
 - **Record/Replay** — record effect results, replay without side effects
 - **Transactions** — buffer writes, commit on success, rollback on failure
 - **Automatic differentiation** — forward-mode (dual numbers) and reverse-mode (backpropagation) with the same math expressions
+- **Shallow state machine** — mutable state (get/put) and traffic light controller via shallow handler re-installation
+- **shift/reset, shift0/reset0** — delimited continuations: deep = shift/reset, shallow = shift0/reset0, with generator example
 
 ## API reference
 
@@ -128,8 +131,8 @@ See [`examples/`](examples/) for demonstrations:
 |---|---|
 | `effect("name")` | Create a new `Effect` |
 | `@effect(e1, e2, ...)` | Decorate a function to declare its effects |
-| `create_handler(*effects)` | Create a synchronous handler |
-| `create_async_handler(*effects)` | Create an asynchronous handler |
+| `create_handler(*effects, shallow=False)` | Create a synchronous handler |
+| `create_async_handler(*effects, shallow=False)` | Create an asynchronous handler |
 | `h.on(effect)` | Register a handler function (decorator) |
 | `h(caller)` | Run caller with the handler active |
 | `effects(fn)` | Get the declared effect set of a function |
