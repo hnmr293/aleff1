@@ -203,7 +203,7 @@ class TestRestoreContinuationErrors:
 # ---------------------------------------------------------------------------
 # restore_continuation: greenlet integration
 #
-# These tests use greenlet directly (not aleff1 handlers) to verify
+# These tests use greenlet directly (not aleff handlers) to verify
 # that restore_continuation correctly resumes a snapshotted frame chain.
 # ---------------------------------------------------------------------------
 

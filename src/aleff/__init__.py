@@ -1,5 +1,5 @@
 from importlib.metadata import version
 
-__version__ = version("aleff1")
+__version__ = version("aleff")
 
 from .v1 import *

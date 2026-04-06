@@ -1,5 +1,5 @@
 [project]
-name = "aleff1"
+name = "aleff"
 version = "0.1.0"
 description = "Algebraic effects for Python — deep, stateful, multi-shot handlers via greenlet-based delimited continuations"
 readme = "README.md"
@@ -23,9 +23,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/hnmr293/aleff1"
-Repository = "https://github.com/hnmr293/aleff1"
-Issues = "https://github.com/hnmr293/aleff1/issues"
+Homepage = "https://github.com/hnmr293/aleff"
+Repository = "https://github.com/hnmr293/aleff"
+Issues = "https://github.com/hnmr293/aleff/issues"
 
 [dependency-groups]
 dev = [

@@ -1,6 +1,6 @@
 # Examples
 
-Demo applications for aleff1 (greenlet-based algebraic effects).
+Demo applications for aleff (greenlet-based algebraic effects).
 
 All demos follow the same principle: **business logic only invokes effects, and behavior changes by swapping handlers.**
 

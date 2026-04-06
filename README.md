@@ -17,15 +17,15 @@ Algebraic effects for Python — deep, stateful, multi-shot handlers via greenle
 
 - CPython >= 3.12 (CPython-specific C extension)
 - greenlet >= 3.3.2
-- Linux / macOS (Windows not yet supported — see [#1](https://github.com/hnmr293/aleff1/issues/1))
+- Linux / macOS (Windows not yet supported — see [#1](https://github.com/hnmr293/aleff/issues/1))
 
 ## Installation
 
 From source:
 
 ```sh
-git clone https://github.com/hnmr293/aleff1.git
-cd aleff1
+git clone https://github.com/hnmr293/aleff.git
+cd aleff
 pip install .
 ```
 
