@@ -8,9 +8,9 @@ requires-python = ">=3.12"
 authors = [
     { name = "hnmr" },
 ]
-keywords = ["algebraic-effects", "effects", "greenlet", "delimited-continuations"]
+keywords = ["Python", "algebraic-effects", "effects", "greenlet", "delimited-continuations", "multi-shot continuations", "stateful handlers", "deep handlers"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
