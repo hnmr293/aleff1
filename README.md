@@ -15,7 +15,7 @@ Algebraic effects for Python — deep, stateful, multi-shot handlers via greenle
 
 ## Requirements
 
-- CPython >= 3.12 (CPython-specific C extension)
+- CPython 3.12, 3.13, or 3.14 (CPython-specific C extension)
 - greenlet >= 3.3.2
 - Linux / macOS (Windows not yet supported — see [#1](https://github.com/hnmr293/aleff/issues/1))
 
@@ -99,7 +99,15 @@ Because handlers use greenlets (not exceptions), the control flow is:
 - **Transparent** — no `yield`, `await`, or special syntax in business logic
 - **Stateful** — code after `resume` runs after the rest of the computation completes, enabling reverse-order execution (useful for backpropagation, transactions, etc.)
 
-Multi-shot continuations are implemented via a CPython C extension (`aleff._aleff`) that snapshots and restores interpreter frame chains.
+Multi-shot continuations are implemented via a CPython C extension (`aleff._multishot.v1._aleff`) that snapshots and restores interpreter frame chains.
+
+### Package structure
+
+| Package | Description |
+|---|---|
+| `aleff` | Default: re-exports `aleff.multishot` (multi-shot handlers) |
+| `aleff.multishot` | Multi-shot handlers with frame snapshot/restore |
+| `aleff.oneshot` | One-shot handlers (no C extension required) |
 
 ## Examples
 

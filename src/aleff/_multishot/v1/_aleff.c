@@ -16,6 +16,7 @@
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
 #include <frameobject.h>
+#include <stddef.h>
 #include <dlfcn.h>
 
 #if PY_VERSION_HEX < 0x030c0000
@@ -151,40 +152,155 @@ _aleff_init_opcode_deopt(void)
 }
 
 /* ========================================================================
- * _PyInterpreterFrame layout for Python 3.12
+ * _PyInterpreterFrame layout replica
  *
- * This is a replica of the internal structure from
- * cpython/Include/internal/pycore_frame.h
- * We define it here because the internal headers are not installed.
+ * We define our own struct matching cpython/Include/internal/pycore_frame.h
+ * because the internal headers are not installed.
+ *
+ * 3.14 changed several field types:
+ *   - f_executable, f_funcobj: PyObject * → _PyStackRef (uintptr_t)
+ *   - localsplus elements: PyObject * → _PyStackRef
+ *   - stacktop (int) → stackpointer (_PyStackRef *)
+ *   - FRAME_OWNED_BY_CSTACK: 3 → 4
  * ======================================================================== */
 
 typedef uint16_t _aleff_codeunit;
 
+#if PY_VERSION_HEX >= 0x030e0000
+/* Python 3.14+: _PyStackRef fields */
+
+typedef uintptr_t _aleff_stackref;
+
+typedef struct _aleff_frame {
+    _aleff_stackref f_executable;        /* _PyStackRef: code object */
+    struct _aleff_frame *previous;
+    _aleff_stackref f_funcobj;           /* _PyStackRef: function object */
+    PyObject *f_globals;
+    PyObject *f_builtins;
+    PyObject *f_locals;
+    PyFrameObject *frame_obj;
+    _aleff_codeunit *instr_ptr;          /* instruction pointer (3.13+ name) */
+    _aleff_stackref *stackpointer;       /* pointer into localsplus */
+    uint16_t return_offset;
+    char owner;
+    uint8_t visited;
+    _aleff_stackref localsplus[1];       /* _PyStackRef elements */
+} _aleff_frame_t;
+
+/* Convert _aleff_stackref ↔ PyObject*.
+ * In CPython 3.14, _PyStackRef uses a tag bit (bit 0) for deferred
+ * references.  We must mask it off when reading, and preserve it
+ * when writing. */
+#define _ALEFF_TAG_BITS ((uintptr_t)1)
+
+static inline PyObject *
+_aleff_stackref_to_obj(_aleff_stackref ref)
+{
+    return (PyObject *)(ref & ~_ALEFF_TAG_BITS);
+}
+
+static inline _aleff_stackref
+_aleff_obj_to_stackref(PyObject *obj)
+{
+    /* Replicate PyStackRef_FromPyObjectSteal: immortal objects get the
+     * Py_TAG_REFCNT (1) tag bit set via ob_flags. */
+    if (obj == nullptr) return 0;
+    unsigned int tag = ((PyObject *)obj)->ob_flags & _ALEFF_TAG_BITS;
+    return (_aleff_stackref)((uintptr_t)obj | tag);
+}
+
+static inline int
+_aleff_stackref_is_null(_aleff_stackref ref)
+{
+    return _aleff_stackref_to_obj(ref) == nullptr;
+}
+
+#define ALEFF_LOCALSPLUS_GET(frame, i) \
+    _aleff_stackref_to_obj((frame)->localsplus[i])
+#define ALEFF_LOCALSPLUS_SET(frame, i, obj) \
+    ((frame)->localsplus[i] = _aleff_obj_to_stackref(obj))
+
+/* prev_instr accessor (3.14 uses instr_ptr) */
+#define ALEFF_PREV_INSTR(frame) ((frame)->instr_ptr)
+
+/* stacktop accessor: compute from stackpointer - localsplus base */
+static inline int
+_aleff_frame_stacktop(_aleff_frame_t *frame)
+{
+    if (frame->stackpointer == nullptr) return -1;
+    return (int)(frame->stackpointer - frame->localsplus);
+}
+
+static inline void
+_aleff_frame_set_stacktop(_aleff_frame_t *frame, int top)
+{
+    frame->stackpointer = frame->localsplus + top;
+}
+
+#define FRAME_OWNED_BY_THREAD 0
+#define FRAME_OWNED_BY_GENERATOR 1
+#define FRAME_OWNED_BY_FRAME_OBJECT 2
+#define FRAME_OWNED_BY_INTERPRETER 3
+#define FRAME_OWNED_BY_CSTACK 4
+
+#else
+/* Python 3.12-3.13: PyObject* fields */
+
 typedef struct _aleff_frame {
     PyObject *f_executable;              /* strong ref: code object */
-    struct _aleff_frame *previous;       /* previous frame in chain */
+    struct _aleff_frame *previous;
     PyObject *f_funcobj;                 /* strong ref: function object */
-    PyObject *f_globals;                 /* borrowed ref */
-    PyObject *f_builtins;               /* borrowed ref */
-    PyObject *f_locals;                  /* strong ref, may be nullptr */
-    PyFrameObject *frame_obj;            /* strong ref, may be nullptr */
-    _aleff_codeunit *prev_instr;        /* instruction pointer */
+    PyObject *f_globals;
+    PyObject *f_builtins;
+    PyObject *f_locals;
+    PyFrameObject *frame_obj;
+    _aleff_codeunit *prev_instr;         /* instruction pointer */
     int stacktop;                        /* top of value stack */
     uint16_t return_offset;
     char owner;
-    PyObject *localsplus[1];            /* variable-length: locals + cells + stack */
+    PyObject *localsplus[1];             /* variable-length */
 } _aleff_frame_t;
 
-/* Frame owner constants (from pycore_frame.h) */
+#define ALEFF_LOCALSPLUS_GET(frame, i) ((frame)->localsplus[i])
+#define ALEFF_LOCALSPLUS_SET(frame, i, obj) ((frame)->localsplus[i] = (obj))
+#define ALEFF_PREV_INSTR(frame) ((frame)->prev_instr)
+
+static inline int
+_aleff_frame_stacktop(_aleff_frame_t *frame)
+{
+    return frame->stacktop;
+}
+
+static inline void
+_aleff_frame_set_stacktop(_aleff_frame_t *frame, int top)
+{
+    frame->stacktop = top;
+}
+
 #define FRAME_OWNED_BY_THREAD 0
 #define FRAME_OWNED_BY_GENERATOR 1
 #define FRAME_OWNED_BY_FRAME_OBJECT 2
 #define FRAME_OWNED_BY_CSTACK 3
 
+#endif /* PY_VERSION_HEX >= 0x030e0000 */
+
+/* Accessors for f_executable and f_funcobj (PyObject* vs _PyStackRef) */
+#if PY_VERSION_HEX >= 0x030e0000
+#define ALEFF_GET_EXECUTABLE(frame) _aleff_stackref_to_obj((frame)->f_executable)
+#define ALEFF_SET_EXECUTABLE(frame, obj) ((frame)->f_executable = _aleff_obj_to_stackref(obj))
+#define ALEFF_GET_FUNCOBJ(frame) _aleff_stackref_to_obj((frame)->f_funcobj)
+#define ALEFF_SET_FUNCOBJ(frame, obj) ((frame)->f_funcobj = _aleff_obj_to_stackref(obj))
+#else
+#define ALEFF_GET_EXECUTABLE(frame) ((frame)->f_executable)
+#define ALEFF_SET_EXECUTABLE(frame, obj) ((frame)->f_executable = (obj))
+#define ALEFF_GET_FUNCOBJ(frame) ((frame)->f_funcobj)
+#define ALEFF_SET_FUNCOBJ(frame, obj) ((frame)->f_funcobj = (obj))
+#endif
+
 static inline PyCodeObject *
 _aleff_frame_get_code(_aleff_frame_t *frame)
 {
-    return (PyCodeObject *)frame->f_executable;
+    return (PyCodeObject *)ALEFF_GET_EXECUTABLE(frame);
 }
 
 static inline int
@@ -216,8 +332,8 @@ FrameSnapshot_dealloc(FrameSnapshotObject *self)
         _aleff_frame_t *f = fc->frame;
         if (f == nullptr) continue;
 
-        Py_XDECREF(f->f_executable);
-        Py_XDECREF(f->f_funcobj);
+        Py_XDECREF(ALEFF_GET_EXECUTABLE(f));
+        Py_XDECREF(ALEFF_GET_FUNCOBJ(f));
         /* f_globals and f_builtins are borrowed in live frames,
            but we hold strong refs in copies */
         Py_XDECREF(f->f_globals);
@@ -226,7 +342,7 @@ FrameSnapshot_dealloc(FrameSnapshotObject *self)
         /* Don't decref frame_obj — we set it to nullptr in copies */
 
         for (int j = 0; j < fc->num_slots; j++) {
-            Py_XDECREF(f->localsplus[j]);
+            Py_XDECREF(ALEFF_LOCALSPLUS_GET(f, j));
         }
         PyMem_Free(f);
     }
@@ -287,9 +403,18 @@ copy_single_frame(_aleff_frame_t *src)
     /* Bitwise copy first */
     memcpy(dst, src, frame_size);
 
+#if PY_VERSION_HEX >= 0x030e0000
+    /* Fix up stackpointer: it pointed into src->localsplus, now must
+     * point into dst->localsplus at the same offset. */
+    if (src->stackpointer != nullptr) {
+        ptrdiff_t sp_offset = src->stackpointer - src->localsplus;
+        dst->stackpointer = dst->localsplus + sp_offset;
+    }
+#endif
+
     /* Strong refs for objects */
-    Py_XINCREF(dst->f_executable);
-    Py_XINCREF(dst->f_funcobj);
+    Py_XINCREF(ALEFF_GET_EXECUTABLE(dst));
+    Py_XINCREF(ALEFF_GET_FUNCOBJ(dst));
     /* Promote borrowed to strong */
     Py_XINCREF(dst->f_globals);
     Py_XINCREF(dst->f_builtins);
@@ -329,14 +454,15 @@ copy_single_frame(_aleff_frame_t *src)
      * When stacktop == -1 (active frame): only locals/cells/freevars
      * (0..co_nlocalsplus-1) are safe. The value stack portion may
      * contain stale pointers from the eval loop. */
-    int valid_slots = dst->stacktop >= 0
-        ? dst->stacktop
+    int stacktop = _aleff_frame_stacktop(dst);
+    int valid_slots = stacktop >= 0
+        ? stacktop
         : code->co_nlocalsplus;
     for (int i = 0; i < valid_slots; i++) {
-        Py_XINCREF(dst->localsplus[i]);
+        Py_XINCREF(ALEFF_LOCALSPLUS_GET(dst, i));
     }
     for (int i = valid_slots; i < num_slots; i++) {
-        dst->localsplus[i] = nullptr;
+        ALEFF_LOCALSPLUS_SET(dst, i, nullptr);
     }
 
     result.frame = dst;
@@ -489,28 +615,29 @@ inject_resume_value(_aleff_frame_t *frame, PyObject *value)
 {
     PyCodeObject *code = _aleff_frame_get_code(frame);
     int value_stack_base = code->co_nlocalsplus;
-    uint8_t raw_opcode = (*frame->prev_instr) & 0xFF;
+    int stacktop = _aleff_frame_stacktop(frame);
+    uint8_t raw_opcode = (*ALEFF_PREV_INSTR(frame)) & 0xFF;
     uint8_t base_opcode = _aleff_opcode_deopt[raw_opcode];
 
     /* CALL instruction size: 1 (CALL) + 3 (CACHE entries) = 4 codeunits.
-     * Same in both 3.12 and 3.13. */
+     * Same in 3.12, 3.13, and 3.14. */
     #define CALL_TOTAL_SIZE 4
 
     if (base_opcode == CALL_OPCODE) {
-        if (frame->stacktop < 0) {
+        if (stacktop < 0) {
             /* Active frame (stacktop == -1): the frame is mid-CALL to a
              * C function via PyObject_Vectorcall.  The eval loop has NOT
              * shrunk the stack, so callable + self_or_null + args are still
              * on the value stack.  Pop them before pushing the resume value. */
-            uint8_t oparg = (*frame->prev_instr >> 8) & 0xFF;
+            uint8_t oparg = (*ALEFF_PREV_INSTR(frame) >> 8) & 0xFF;
             int call_items = oparg + 2;  /* callable + self_or_null + args */
-            frame->stacktop = value_stack_base + call_items;
+            stacktop = value_stack_base + call_items;
             int new_top = value_stack_base;
-            for (int i = new_top; i < frame->stacktop; i++) {
-                Py_XDECREF(frame->localsplus[i]);
-                frame->localsplus[i] = nullptr;
+            for (int i = new_top; i < stacktop; i++) {
+                Py_XDECREF(ALEFF_LOCALSPLUS_GET(frame, i));
+                ALEFF_LOCALSPLUS_SET(frame, i, nullptr);
             }
-            frame->stacktop = new_top;
+            stacktop = new_top;
         }
         /* stacktop >= 0: the frame called a Python function via
          * CALL / CALL_PY_EXACT_ARGS / CALL_PY_GENERAL / etc.
@@ -524,16 +651,16 @@ inject_resume_value(_aleff_frame_t *frame, PyObject *value)
          * 3.13+ (instr_ptr): points to the NEXT instruction to execute.
          *   Eval loop resumes at instr_ptr directly, so advance by SIZE. */
 #if PY_VERSION_HEX >= 0x030d0000
-        frame->prev_instr += CALL_TOTAL_SIZE;
+        ALEFF_PREV_INSTR(frame) += CALL_TOTAL_SIZE;
 #else
-        frame->prev_instr += CALL_TOTAL_SIZE - 1;
+        ALEFF_PREV_INSTR(frame) += CALL_TOTAL_SIZE - 1;
 #endif
     } else {
         /* Non-CALL opcode.
          * If stacktop >= 0, the eval loop saved a valid stack pointer.
          * If stacktop == -1, this is an active frame; reset to base. */
-        if (frame->stacktop < 0) {
-            frame->stacktop = value_stack_base;
+        if (stacktop < 0) {
+            stacktop = value_stack_base;
         }
     }
 
@@ -541,8 +668,9 @@ inject_resume_value(_aleff_frame_t *frame, PyObject *value)
 
     /* Push the resume value */
     Py_INCREF(value);
-    frame->localsplus[frame->stacktop] = value;
-    frame->stacktop++;
+    ALEFF_LOCALSPLUS_SET(frame, stacktop, value);
+    stacktop++;
+    _aleff_frame_set_stacktop(frame, stacktop);
 }
 
 /*
@@ -569,9 +697,17 @@ push_frame_to_datastack(PyThreadState *tstate, _aleff_frame_t *src, int num_slot
     memcpy(dst, src, frame_size);
     tstate->datastack_top += nslots;
 
+#if PY_VERSION_HEX >= 0x030e0000
+    /* Fix up stackpointer after memcpy (points into src->localsplus). */
+    if (src->stackpointer != nullptr) {
+        ptrdiff_t sp_offset = src->stackpointer - src->localsplus;
+        dst->stackpointer = dst->localsplus + sp_offset;
+    }
+#endif
+
     /* INCREF all references (the copy shares objects with the snapshot copy) */
-    Py_XINCREF(dst->f_executable);
-    Py_XINCREF(dst->f_funcobj);
+    Py_XINCREF(ALEFF_GET_EXECUTABLE(dst));
+    Py_XINCREF(ALEFF_GET_FUNCOBJ(dst));
     Py_XINCREF(dst->f_globals);
     Py_XINCREF(dst->f_builtins);
     Py_XINCREF(dst->f_locals);
@@ -581,7 +717,7 @@ push_frame_to_datastack(PyThreadState *tstate, _aleff_frame_t *src, int num_slot
     /* Source is from a snapshot where stale slots are already nullified.
      * INCREF all non-null entries. */
     for (int i = 0; i < num_slots; i++) {
-        Py_XINCREF(dst->localsplus[i]);
+        Py_XINCREF(ALEFF_LOCALSPLUS_GET(dst, i));
     }
 
     return dst;
@@ -848,7 +984,7 @@ _aleff_debug_frame_stacktop([[maybe_unused]] PyObject *self, PyObject *arg)
     #define F_FRAME_OFFSET (sizeof(PyObject) + sizeof(PyFrameObject *))
     _aleff_frame_t *iframe = *(_aleff_frame_t **)((char *)arg + F_FRAME_OFFSET);
     #undef F_FRAME_OFFSET
-    return PyLong_FromLong(iframe->stacktop);
+    return PyLong_FromLong(_aleff_frame_stacktop(iframe));
 }
 
 /* ========================================================================

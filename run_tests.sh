@@ -4,6 +4,7 @@ set -euo pipefail
 targets=(
     "3.12"
     "3.13"
+    "3.14"
 )
 
 for ver in "${targets[@]}"; do
