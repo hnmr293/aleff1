@@ -38,7 +38,7 @@ for f in examples/demo_*.py; do
         skipped=$((skipped + 1))
         continue
     fi
-    actual=$(uv run --quiet --python "$ver" python "$f" 2>&1)
+    actual=$(PYTHONIOENCODING=utf-8 uv run --quiet --python "$ver" python "$f" 2>&1 | tr -d '\r')
     if diff -u "$expected" <(echo "$actual") > /dev/null 2>&1; then
         success=$((success + 1))
     else
