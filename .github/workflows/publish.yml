@@ -32,7 +32,7 @@ jobs:
             echo "should_publish=true" >> "$GITHUB_OUTPUT"
           fi
 
-  build:
+  build-sdist:
     name: Build sdist
     needs: check-version
     if: needs.check-version.outputs.should_publish == 'true'
@@ -47,14 +47,38 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dist
+          name: dist-sdist
           path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 1
+
+  build-wheels:
+    name: "Build wheels (${{ matrix.os }})"
+    needs: check-version
+    if: needs.check-version.outputs.should_publish == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-13, macos-14]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.23
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-wheels-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
           if-no-files-found: error
           retention-days: 1
 
   publish-testpypi:
     name: Publish to TestPyPI
-    needs: build
+    needs: [build-sdist, build-wheels]
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
@@ -62,8 +86,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: dist
+          pattern: dist-*
           path: dist/
+          merge-multiple: true
 
       - uses: pypa/gh-action-pypi-publish@release/v1
         with:
@@ -80,8 +105,9 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: dist
+          pattern: dist-*
           path: dist/
+          merge-multiple: true
 
       - uses: pypa/gh-action-pypi-publish@release/v1
 
