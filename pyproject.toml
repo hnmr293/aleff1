@@ -1,6 +1,6 @@
 [project]
 name = "aleff"
-version = "0.1.0"
+version = "0.2.0"
 description = "Algebraic effects for Python — deep and shallow, stateful, composable, multi-shot handlers"
 readme = "README.md"
 license = "Apache-2.0"
@@ -27,6 +27,11 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: Free Threading :: 2 - Beta",
     "Typing :: Typed",
     "Topic :: Software Development :: Libraries :: Python Modules",
 ]
