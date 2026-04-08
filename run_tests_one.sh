@@ -14,7 +14,7 @@ echo "===== Python $ver ====="
 case "$(uname -s)" in
     MINGW*|MSYS*)
         # Windows: use setuptools (MSVC) via build_ext --inplace
-        uv run --python "$ver" python setup.py build_ext --inplace
+        uv run --python "$ver" --with setuptools python setup.py build_ext --inplace
         ;;
     *)
         PYTHON="uv run --python $ver python" make debug
