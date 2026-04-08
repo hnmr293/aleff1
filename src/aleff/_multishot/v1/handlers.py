@@ -15,7 +15,7 @@ from .intf import (
     Handler,
     AsyncHandler,
 )
-from .effects import EffectContext
+from .effects import EffectContext, ABORT, EffectAborted
 from .misc import debug, eff_str
 from ._aleff import FrameSnapshot, restore_continuation, snapshot_from_frame
 
@@ -255,12 +255,35 @@ def _drive[V](caller_gl: Any, value: V | EffectContext[..., Any]) -> V:
         # resume not called in the handler
         # discard the result
         debug(f"||< **abort** perform {eff_str(d.effect)} = {v!r}")
-        caller_gl.throw(gl.GreenletExit)
+        _abort_caller(caller_gl)
 
     debug(f"||< perform {eff_str(d.effect)} = {v!r}")
 
     debug("||< @main")
     return v
+
+
+def _abort_caller(caller_gl: Any) -> None:
+    """Abort a caller greenlet without exposing GreenletExit.
+
+    Sends the ``ABORT`` sentinel to the caller.  The effect invocation
+    function recognises it and raises ``EffectAborted`` (a
+    ``BaseException`` subclass), which propagates through ``finally``
+    blocks but is not caught by ``except Exception``.
+    """
+
+    try:
+        abort_v = caller_gl.switch(ABORT)
+    except EffectAborted:
+        return
+    while not caller_gl.dead:
+        if isinstance(abort_v, EffectContext):
+            try:
+                abort_v = caller_gl.switch(ABORT)
+            except EffectAborted:
+                return
+        else:
+            break
 
 
 class _AwaitRequest[V]:
@@ -419,7 +442,7 @@ async def _drive_async[V](
         # resume not called in the handler
         # discard the result
         debug(f"||< **abort** perform {eff_str(d.effect)} = {v!r}")
-        caller_gl.throw(gl.GreenletExit)
+        _abort_caller(caller_gl)
 
     debug(f"||< perform {eff_str(d.effect)} = {v!r}")
 

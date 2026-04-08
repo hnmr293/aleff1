@@ -42,6 +42,16 @@ def effect[**P, R](*args: str | Callable[..., Any]) -> Effect[..., Any] | Callab
     return decorator
 
 
+class EffectAborted(BaseException):
+    """Raised internally to abort a computation without leaking GreenletExit."""
+
+    pass
+
+
+ABORT = object()
+"""Sentinel value switched into a caller greenlet to trigger EffectAborted."""
+
+
 def _make_effect(name: str) -> Effect[..., Any]:
     """Create a new effect as a plain Python function.
 
@@ -61,7 +71,10 @@ def _make_effect(name: str) -> Effect[..., Any]:
         handler_gl = gl.getcurrent().parent
         if handler_gl is None:
             raise EffectNotHandledError(eff)
-        return handler_gl.switch(EffectContext(eff, args, kwargs))
+        result = handler_gl.switch(EffectContext(eff, args, kwargs))
+        if result is ABORT:
+            raise EffectAborted()
+        return result
 
     perform.name = name  # pyright: ignore[reportFunctionMemberAccess]
     eff = cast(Effect[..., Any], perform)

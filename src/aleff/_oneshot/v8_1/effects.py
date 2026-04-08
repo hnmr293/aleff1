@@ -76,6 +76,16 @@ class EffectContext[**P, R]:
         return f"({self.effect} | args={self.args!r}, kwargs={self.kwargs!r})"
 
 
+class EffectAborted(BaseException):
+    """Raised internally to abort a computation without leaking GreenletExit."""
+
+    pass
+
+
+ABORT = object()
+"""Sentinel value switched into a caller greenlet to trigger EffectAborted."""
+
+
 class _Effect[**P, R](Effect[P, R]):
     def __init__(self, name: str):
         self._name = name
@@ -91,7 +101,10 @@ class _Effect[**P, R](Effect[P, R]):
         handler_gl = gl.getcurrent().parent
         if handler_gl is None:
             raise EffectNotHandledError(self)
-        return handler_gl.switch(EffectContext(self, args, kwargs))
+        result = handler_gl.switch(EffectContext(self, args, kwargs))
+        if result is ABORT:
+            raise EffectAborted()
+        return result
 
     def __str__(self) -> str:
         return f"<effect {self.name}>"
