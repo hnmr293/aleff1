@@ -2,13 +2,14 @@
 set -euo pipefail
 
 targets=(
-    "3.12"
-    "3.13"
-    "3.14"
+    "3.12.13"
+    "3.13.12"
+    "3.14.3"
+    "3.14.3t"
 )
 
 for ver in "${targets[@]}"; do
-    PYTHON="python$ver" make debug
+    PYTHON="uv run --python $ver python" make debug
 done
 
 for ver in "${targets[@]}"; do
