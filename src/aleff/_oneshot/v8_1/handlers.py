@@ -15,7 +15,7 @@ from .intf import (
     Handler,
     AsyncHandler,
 )
-from .effects import EffectContext
+from .effects import EffectContext, ABORT, EffectAborted
 from .misc import debug
 
 
@@ -201,15 +201,42 @@ def _drive[V](caller_gl: Any, value: V | EffectContext[..., Any]) -> V:
     v = d.fn(resume, *d.args, **d.kwargs)
 
     if not caller_gl.dead:
-        # resume not called in the handler
-        # discard the result
+        # resume not called in the handler — abort the computation.
+        # Send ABORT sentinel so that _Effect.__call__ raises
+        # EffectAborted instead of exposing GreenletExit.
         debug(f"||< **abort** perform {d.effect} = {v!r}")
-        caller_gl.throw(gl.GreenletExit)
+        _abort_caller(caller_gl)
 
     debug(f"||< perform {d.effect} = {v!r}")
 
     debug("||< @main")
     return v
+
+
+def _abort_caller(caller_gl: Any) -> None:
+    """Abort a caller greenlet without exposing GreenletExit.
+
+    Sends the ``ABORT`` sentinel to the caller.  ``_Effect.__call__``
+    recognises it and raises ``EffectAborted`` (a ``BaseException``
+    subclass), which propagates through ``finally`` blocks but is not
+    caught by ``except Exception``.
+
+    If the caller catches ``EffectAborted`` and performs another effect,
+    the loop sends ``ABORT`` again until the greenlet dies.
+    """
+
+    try:
+        abort_v = caller_gl.switch(ABORT)
+    except EffectAborted:
+        return  # caller died from the abort — expected
+    while not caller_gl.dead:
+        if isinstance(abort_v, EffectContext):
+            try:
+                abort_v = caller_gl.switch(ABORT)
+            except EffectAborted:
+                return
+        else:
+            break
 
 
 class _AwaitRequest:
@@ -340,7 +367,7 @@ async def _drive_async[V](
         # resume not called in the handler
         # discard the result
         debug(f"||< **abort** perform {d.effect} = {v!r}")
-        caller_gl.throw(gl.GreenletExit)
+        _abort_caller(caller_gl)
 
     debug(f"||< perform {d.effect} = {v!r}")
 
