@@ -79,7 +79,7 @@ class Handler[V](Protocol):
         """Whether this is a shallow handler."""
         ...
 
-    def on[**P, R](self, effect: Effect[P, R]) -> Callable[[EffectHandler[P, V, R]], Callable[P, V]]:
+    def on[**P, R](self, effect: Effect[P, R]) -> Callable[[EffectHandler[P, V, R]], EffectHandler[P, V, R]]:
         """Register a handler function for *effect*.  Returns a decorator."""
         ...
 
@@ -120,7 +120,7 @@ class AsyncHandler[V](Protocol):
     def on[**P, R](
         self,
         effect: Effect[P, R],
-    ) -> Callable[[AsyncEffectHandler[P, V, R]], Callable[P, Coroutine[Any, Any, V]]]:
+    ) -> Callable[[AsyncEffectHandler[P, V, R]], AsyncEffectHandler[P, V, R]]:
         """Register an async handler function for *effect*.  Returns a decorator."""
         ...
 
