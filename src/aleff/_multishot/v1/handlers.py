@@ -2,7 +2,7 @@ from asyncio import Lock, iscoroutine
 from contextvars import ContextVar, copy_context
 from dataclasses import dataclass
 from inspect import iscoroutinefunction
-from typing import Any, Awaitable, Callable, cast, Coroutine
+from typing import Any, Awaitable, Callable, cast, Coroutine, TypeGuard
 import greenlet as gl
 from .intf import (
     Effect,
@@ -60,9 +60,17 @@ def create_async_handler(*effects: Effect[..., Any], shallow: bool = False) -> A
 
 
 class _Resume[R, V](Resume[R, V]):
-    def __init__(self, caller_gl: gl.greenlet, snapshot: FrameSnapshot[R, V]) -> None:
+    def __init__(
+        self,
+        caller_gl: gl.greenlet,
+        snapshot: FrameSnapshot[R, V],
+        token: object,
+        handler: "_Handler[Any] | _AsyncHandler[Any]",
+    ) -> None:
         self._caller_gl = caller_gl
         self._snapshot = snapshot
+        self._token = token
+        self._handler = handler
 
     def __call__(self, value: R) -> V:
         caller_gl = self._caller_gl
@@ -107,9 +115,17 @@ class _Resume[R, V](Resume[R, V]):
 
 
 class _ResumeAsync[R, V](ResumeAsync[R, V]):
-    def __init__(self, caller_gl: gl.greenlet, snapshot: FrameSnapshot[R, V]) -> None:
+    def __init__(
+        self,
+        caller_gl: gl.greenlet,
+        snapshot: FrameSnapshot[R, V],
+        token: object,
+        handler: "_Handler[Any] | _AsyncHandler[Any]",
+    ) -> None:
         self._caller_gl = caller_gl
         self._snapshot = snapshot
+        self._token = token
+        self._handler = handler
 
     async def __call__(self, value: R) -> V:
         caller_gl = self._caller_gl
@@ -160,6 +176,7 @@ class _EffectDispatch:
 def _pre_drive(
     caller_gl: Any,
     value: EffectContext[..., Any],
+    exclude_token: object | None = None,
 ) -> _EffectDispatch:
     if not isinstance(value, EffectContext):  # pyright: ignore[reportUnnecessaryIsInstance]
         raise RuntimeError(f"invalid value passed to caller: {value!r}")
@@ -168,7 +185,7 @@ def _pre_drive(
     args = value.args
     kwargs = value.kwargs
 
-    found = _get_item(effect)
+    found = _get_item(effect, exclude_token=exclude_token)
     if found is None:
         raise EffectNotHandledError(effect)
 
@@ -231,7 +248,7 @@ def _drive[V](caller_gl: Any, value: V | EffectContext[..., Any]) -> V:
     # suspended at this point, so its frames have valid stacktop values.
     snapshot = snapshot_from_frame(caller_gl.gr_frame)
 
-    resume: Resume[Any, Any] = _Resume(caller_gl, snapshot)
+    resume: Resume[Any, Any] = _Resume(caller_gl, snapshot, d.token, d.handler)
     v = d.fn(resume, *d.args, **d.kwargs)
 
     if not caller_gl.dead:
@@ -262,7 +279,86 @@ class _AwaitRequest[V]:
         self.awaitable = awaitable
 
 
-async def _drive_async[V](caller_gl: Any, value: V | _AwaitRequest[V] | EffectContext[..., Any]) -> V:
+def _is_effect_context(v: Any) -> TypeGuard[EffectContext[..., Any]]:
+    return isinstance(v, EffectContext)
+
+
+def _is_await_request(v: Any) -> TypeGuard[_AwaitRequest[Any]]:
+    return isinstance(v, _AwaitRequest)
+
+
+async def _run_handler_fn_in_bridge(
+    fn: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    exclude_token: object | None,
+) -> Any:
+    """Run an async handler fn in a bridge greenlet, dispatching effects
+    and relaying ``await`` requests back to the event loop."""
+
+    def _bridge() -> Any:
+        coro = fn(*args, **kwargs)
+        val: Any = None
+        parent = gl.getcurrent().parent
+        assert parent is not None
+        try:
+            while True:
+                awaitable = coro.send(val)
+                # asyncio Futures set _asyncio_future_blocking when
+                # yielded via __await__().  Reset it so the awaitable
+                # can be properly re-awaited in the outer event loop.
+                if hasattr(awaitable, "_asyncio_future_blocking"):
+                    awaitable._asyncio_future_blocking = False
+                val = parent.switch(_AwaitRequest(awaitable))
+        except StopIteration as e:
+            return e.value
+
+    handler_fn_gl = gl.greenlet(_bridge)
+    handler_fn_gl.gr_context = copy_context()
+    v: Any = handler_fn_gl.switch()
+
+    while not handler_fn_gl.dead:
+        if _is_effect_context(v):
+            v = await _drive_async(handler_fn_gl, v, exclude_token=exclude_token)
+        elif _is_await_request(v):
+            try:
+                result: Any = await v.awaitable
+            except BaseException as e:
+                v = handler_fn_gl.throw(type(e), e, e.__traceback__)
+            else:
+                v = handler_fn_gl.switch(result)
+        else:
+            break
+
+    return v
+
+
+async def _run_handler_fn_in_greenlet(
+    fn: Callable[..., Any],
+    args: tuple[Any, ...],
+    kwargs: dict[str, Any],
+    exclude_token: object | None,
+) -> Any:
+    """Run a sync handler fn in a greenlet, dispatching effects."""
+
+    handler_fn_gl = gl.greenlet(lambda: fn(*args, **kwargs))
+    handler_fn_gl.gr_context = copy_context()
+    v: Any = handler_fn_gl.switch()
+
+    while not handler_fn_gl.dead:
+        if _is_effect_context(v):
+            v = await _drive_async(handler_fn_gl, v, exclude_token=exclude_token)
+        else:
+            break
+
+    return v
+
+
+async def _drive_async[V](
+    caller_gl: Any,
+    value: V | _AwaitRequest[V] | EffectContext[..., Any],
+    exclude_token: object | None = None,
+) -> V:
     debug("||> @main")
 
     if isinstance(value, _AwaitRequest):
@@ -290,7 +386,7 @@ async def _drive_async[V](caller_gl: Any, value: V | _AwaitRequest[V] | EffectCo
     # effect performed
     # switch to the handler greenlet
 
-    d = _pre_drive(caller_gl, cast(EffectContext[..., Any], value))
+    d = _pre_drive(caller_gl, cast(EffectContext[..., Any], value), exclude_token=exclude_token)
 
     # For shallow handlers, remove all entries before calling fn so that
     # resumed computation will not find this handler on the stack.
@@ -298,12 +394,26 @@ async def _drive_async[V](caller_gl: Any, value: V | _AwaitRequest[V] | EffectCo
         _remove_all_handlers(d.token)
 
     snapshot = snapshot_from_frame(caller_gl.gr_frame)
-    resume: ResumeAsync[Any, Any] = _ResumeAsync(caller_gl, snapshot)
+    resume: ResumeAsync[Any, Any] = _ResumeAsync(caller_gl, snapshot, d.token, d.handler)
+
+    # Use exclude_token so handler fn's effects skip this handler
+    # (for deep handlers, entries stay on the stack for the caller).
+    _exclude = None if d.handler.shallow else d.token
 
     if iscoroutinefunction(d.fn):
-        v = await d.fn(resume, *d.args, **d.kwargs)
+        v = await _run_handler_fn_in_bridge(
+            d.fn,
+            (resume, *d.args),
+            d.kwargs,
+            _exclude,
+        )
     else:
-        v = d.fn(resume, *d.args, **d.kwargs)
+        v = await _run_handler_fn_in_greenlet(
+            d.fn,
+            (resume, *d.args),
+            d.kwargs,
+            _exclude,
+        )
 
     if not caller_gl.dead:
         # resume not called in the handler
@@ -508,9 +618,12 @@ def _set_stack(stack: list[_StackItem[..., Any, Any]]) -> None:
 
 def _get_item[**P, R](
     effect: Effect[P, R],
+    exclude_token: object | None = None,
 ) -> tuple[object, _Handler[Any] | _AsyncHandler[Any], Callable[P, Any]] | None:
     s = _get_stack()
     for token, h, e, f in reversed(s):
+        if token is exclude_token:
+            continue
         if e is effect:
             return token, h, f
     return None
