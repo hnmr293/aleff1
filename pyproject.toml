@@ -70,7 +70,6 @@ line-length = 120
 [tool.cibuildwheel]
 build = ["cp312-*", "cp313-*", "cp314-*"]
 skip = ["*-manylinux_i686", "*-musllinux_*", "*-win32", "cp313t-*"]
-enable = ["cpython-freethreading"]
 build-frontend = "build[uv]"
 test-command = "pytest {project}/tests -q"
 test-requires = ["pytest", "pytest-asyncio", "greenlet>=3.3.2"]
