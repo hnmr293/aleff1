@@ -55,8 +55,8 @@ def create_async_handler(*effects: Effect[..., Any], shallow: bool = False) -> A
 #   dead   → multi-shot: restore_continuation(snapshot, value) in new greenlet
 #
 # A fresh Resume is created at each effect dispatch in _drive/_drive_async,
-# capturing the current caller_gl and snapshot. This avoids statefulness
-# and prevents infinite recursion on multi-shot.
+# capturing the current caller_gl and snapshot. This avoids carrying
+# mutable state across dispatches and prevents infinite recursion on multi-shot.
 ##
 
 

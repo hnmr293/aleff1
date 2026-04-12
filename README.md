@@ -6,7 +6,7 @@ Algebraic effects for Python — deep and shallow, stateful, composable, multi-s
 
 - **Deep handlers** — effects propagate through nested function calls without annotation
 - **Shallow handlers** — handle an effect once, then delegate re-installation to the handler function; enables state machines, shift0/reset0, and strategy changes between invocations
-- **Stateful handlers** — handler functions can execute code after `resume`, enabling patterns like transactions and reverse-mode AD
+- **Stateful handlers** — handlers can maintain and update state across multiple effect invocations, either via mutable variables (deep) or re-installation with new state (shallow); enables get/put state, transactions, and reverse-mode AD
 - **Multi-shot continuations** — `resume` can be called multiple times in a single handler, enabling backtracking search, non-determinism, and other advanced patterns
 - **Sync and async** — both synchronous (`Handler`) and asynchronous (`AsyncHandler`) handlers are supported, with transparent bridging between the two
 - **Effect composition** — handler functions can perform effects themselves, dispatched to enclosing handlers; enables layered architectures and modular effect stacking
@@ -143,7 +143,6 @@ log: list[str] = []
 def run() -> list[int]:
     with wind(lambda: log.append("before"), lambda: log.append("after")):
         return [choose() * 10]
-    assert False, "unreachable"
 
 result = h(run)
 print(result)  # [10, 20]
@@ -178,7 +177,7 @@ Effects are declared as typed values and invoked like regular function calls. A 
 
 Because handlers use greenlets (not exceptions), the control flow is:
 - **Transparent** — no `yield`, `await`, or special syntax in business logic
-- **Stateful** — code after `resume` runs after the rest of the computation completes, enabling reverse-order execution (useful for backpropagation, transactions, etc.)
+- **Non-stack-cutting** — code after `resume` in the handler runs after the continuation completes, enabling reverse-order execution (useful for backpropagation, transactions, etc.)
 
 Multi-shot continuations are implemented via a CPython C extension (`aleff._multishot.v1._aleff`) that snapshots and restores interpreter frame chains.
 
