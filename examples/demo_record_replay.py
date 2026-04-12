@@ -9,8 +9,6 @@ Use cases:
   - Caching: reuse results of expensive external calls
 """
 
-from __future__ import annotations
-
 import json
 from dataclasses import dataclass
 from typing import Any
