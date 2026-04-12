@@ -308,11 +308,11 @@ class TestMultiShotDeepCalls:
 
 
 # ---------------------------------------------------------------------------
-# Multi-shot: stateful handler (post-resume code)
+# Multi-shot: post-resume code (non-stack-cutting)
 # ---------------------------------------------------------------------------
 
 
-class TestMultiShotStatefulHandler:
+class TestMultiShotPostResume:
     def test_post_resume_code_runs_per_shot(self):
         """Code after k() in the handler runs for each shot independently."""
         choose: Effect[[], int] = effect("choose")
