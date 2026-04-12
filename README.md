@@ -158,6 +158,14 @@ with wind(lambda: open("data.txt")) as ref:
 # file is closed on exit
 ```
 
+`wind_range` is a multi-shot-safe replacement for `range()` in `for` loops. Python's `range()` iterator is shared across shots and exhausted after the first; `wind_range` saves and restores the iterator position automatically:
+
+```python
+with wind_range(n) as r:
+    for i in r:
+        v = choose()  # multi-shot safe
+```
+
 ## How it works
 
 Effects are declared as typed values and invoked like regular function calls. A `Handler` intercepts these calls via greenlet-based context switching:
@@ -214,6 +222,7 @@ See [`examples/`](examples/) for demonstrations:
 | `Resume[R, V]` | Sync continuation (`k(value) -> V`) |
 | `ResumeAsync[R, V]` | Async continuation (`await k(value) -> V`) |
 | `wind(before, after, *, auto_exit=True)` | Dynamic wind context manager |
+| `wind_range(stop)` / `wind_range(start, stop, step)` | Multi-shot-safe `range()` for `for` loops |
 | `Ref[T]` | Reference wrapper returned by `wind`; call `unwrap()` to get the value |
 
 ## Development
