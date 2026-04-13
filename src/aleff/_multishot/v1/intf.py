@@ -17,10 +17,26 @@ class Effect[**P, R](Protocol):
     Effects are created via the ``effect()`` factory and invoked like regular
     function calls.  A handler intercepts these calls and provides the
     implementation at runtime.
+
+    ``P`` is the parameter types and ``R`` is the return type of the effect.
+
+    ```python
+    # effect: () -> str
+    read: Effect[[], str] = effect("read")
+
+    # effect: str -> int
+    write: Effect[[str], int] = effect("write")
+
+    # Inside a handler, effects are called like regular functions:
+    x = read()  # :: str
+    n = write("data")  # :: int
+    ```
     """
 
     @property
-    def name(self) -> str: ...
+    def name(self) -> str:
+        """The name of the effect, as passed to ``effect("name")``."""
+        ...
 
     def __call__[V](self, *args: P.args, **kwargs: P.kwargs) -> R: ...
 
@@ -29,9 +45,23 @@ class Effect[**P, R](Protocol):
 class Resume[R, V](Protocol):
     """Continuation passed to synchronous effect handlers.
 
+    ``R`` is the type of the value passed to the continuation,
+    ``V`` is the return type of the handled computation.
+
     Calling ``k(value)`` resumes the suspended computation with *value* and
     drives it to completion (or to the next effect).  The return value of
     ``k()`` is the final result of the handled computation.
+
+    ```python
+    @h.on(read)
+    def _read(k: Resume[str, int]) -> int:
+        # k :: str -> int
+        n = k("read from file")   # resume with "read from file", get the final result
+        return n
+    ```
+
+    The handler may call ``k`` zero times (abort), once (one-shot), or
+    multiple times (multi-shot).
     """
 
     def __call__(self, value: R) -> V: ...
@@ -41,8 +71,19 @@ class Resume[R, V](Protocol):
 class ResumeAsync[R, V](Protocol):
     """Continuation passed to asynchronous effect handlers.
 
-    Same semantics as :class:`Resume`, but ``await k(value)`` is required
+    ``R`` is the type of the value passed to the continuation,
+    ``V`` is the return type of the handled computation.
+
+    Same semantics as ``Resume``, but ``await k(value)`` is required
     because the handler function is ``async def``.
+
+    ```python
+    @h.on(read)
+    async def _read(k: ResumeAsync[str, int]) -> int:
+        # k :: str -> Awaitable[int]
+        n = await k("read from file")
+        return n
+    ```
     """
 
     async def __call__(self, value: R) -> V: ...
@@ -57,17 +98,20 @@ type AsyncEffectHandler[**P, V, R] = Callable[Concatenate[ResumeAsync[R, V], P],
 class Handler[V](Protocol):
     """Protocol for synchronous effect handlers.
 
-    Create instances via :func:`create_handler`.  Register effect
-    implementations with :meth:`on`, then invoke the handler with a
-    caller function::
+    Create instances via ``create_handler``.  Register effect
+    implementations with ``on``, then invoke the handler with a
+    caller function:
 
-        h = create_handler(read, write)
+    ```python
+    h: Handler[str] = create_handler(read, write)
+    # h: () -> str
 
-        @h.on(read)
-        def _read(k: Resume[str, int]):
-            return k("data")
+    @h.on(read)
+    def _read(k: Resume[str, str]) -> str:
+        return k("data")
 
-        result = h(lambda: read())
+    result = h(lambda: read())  # :: str
+    ```
     """
 
     @property
@@ -96,16 +140,19 @@ class Handler[V](Protocol):
 class AsyncHandler[V](Protocol):
     """Protocol for asynchronous effect handlers.
 
-    Create instances via :func:`create_async_handler`.  Handler functions
-    are ``async def`` and receive a :class:`ResumeAsync` continuation::
+    Create instances via ``create_async_handler``.  Handler functions
+    are ``async def`` and receive a ``ResumeAsync`` continuation:
 
-        h = create_async_handler(read)
+    ```python
+    h: AsyncHandler[str] = create_async_handler(read)
+    # h: () -> Awaitable[str]
 
-        @h.on(read)
-        async def _read(k: ResumeAsync[str, int]):
-            return await k("data")
+    @h.on(read)
+    async def _read(k: ResumeAsync[str, str]) -> str:
+        return await k("data")
 
-        result = await h(lambda: read())
+    result = await h(lambda: read())  # :: str
+    ```
     """
 
     @property
@@ -136,14 +183,16 @@ class AsyncHandler[V](Protocol):
 
 @runtime_checkable
 class Ref[T](Protocol):
-    """Indirect reference returned by :class:`wind` context manager.
+    """Indirect reference returned by ``wind`` context manager.
 
     ``wind`` wraps the return value of ``before()`` in a ``Ref`` so that
     multi-shot continuation resumes can update the underlying value.
-    Use :meth:`unwrap` to retrieve the current value::
+    Use ``unwrap()`` to retrieve the current value:
 
-        with wind(lambda: open("path.txt")) as ref:
-            ref.unwrap().read()
+    ```python
+    with wind(lambda: open("path.txt")) as ref:
+        ref.unwrap().read()
+    ```
 
     On multi-shot re-entry, ``before()`` is called again and the same
     ``Ref`` object is updated with the new return value.  Because the

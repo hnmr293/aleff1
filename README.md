@@ -2,6 +2,20 @@
 
 Algebraic effects for Python — deep and shallow, stateful, composable, multi-shot handlers.
 
+```python
+from aleff import effect, create_handler
+
+choose = effect("choose")
+h = create_handler(choose)
+
+@h.on(choose)
+def _(k, *values):
+    return sum((k(v) for v in values), [])
+
+print(h(lambda: [choose("A", "B") + choose("C", "D")]))
+# ['AC', 'AD', 'BC', 'BD']
+```
+
 ## Features
 
 - **Deep handlers** — effects propagate through nested function calls without annotation
@@ -13,7 +27,7 @@ Algebraic effects for Python — deep and shallow, stateful, composable, multi-s
 - **Dynamic wind** — `wind` context manager establishes before/after guards that are re-invoked on multi-shot re-entry, with optional auto-management of context managers returned by `before`
 - **Effect annotation** — `@effect(step1, step2)` collects effect sets transitively from decorated functions
 - **Introspection** — `effects(fn)` and `unhandled_effects(fn, h)` for querying and validating effect coverage
-- **Typed** — effect parameters and return types are checked by type checkers (pyright, ty)
+- **Typed** — effect parameters and return types are checked by type checkers (pyright)
 - **No macros, no code generation** — pure Python library built on [greenlet](https://github.com/python-greenlet/greenlet) and a small CPython C extension
 
 ## Requirements
