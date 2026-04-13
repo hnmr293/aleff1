@@ -2,6 +2,8 @@
 
 Algebraic effects for Python — deep and shallow, stateful, composable, multi-shot handlers.
 
+[Doc](https://hnmr293.github.io/aleff/) | [PyPI](https://pypi.org/project/aleff/) | [GitHub](https://github.com/hnmr293/aleff)
+
 ```python
 from aleff import effect, create_handler
 
