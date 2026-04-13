@@ -24,12 +24,24 @@ from .winds import capture_wind_stack, rewind
 def create_handler(*effects: Effect[..., Any], shallow: bool = False) -> Handler[Any]:
     """Create a synchronous handler that handles the given effects.
 
-    Register implementations with :meth:`handler.on`, then call the handler
+    Register implementations with ``on``, then call the handler
     with a caller function to run the computation.
 
     If *shallow* is ``True``, the handler is removed from the handler stack
     after handling one effect occurrence.  Subsequent occurrences of the
     same effect will not be caught by this handler.
+
+    ```python
+    read: Effect[[], str] = effect("read")
+    h: Handler[str] = create_handler(read)
+
+    @h.on(read)
+    def _read(k: Resume[str, str]):
+        return k("hello")
+
+    result = h(lambda: read() + " world")
+    # result == "hello world"
+    ```
     """
     return _Handler[Any](*effects, shallow=shallow)
 
@@ -37,12 +49,24 @@ def create_handler(*effects: Effect[..., Any], shallow: bool = False) -> Handler
 def create_async_handler(*effects: Effect[..., Any], shallow: bool = False) -> AsyncHandler[Any]:
     """Create an asynchronous handler that handles the given effects.
 
-    Handler functions are ``async def`` and receive :class:`ResumeAsync`.
+    Handler functions are ``async def`` and receive ``ResumeAsync``.
     The caller function runs in a greenlet; effect invocations are
     synchronous from the caller's perspective.
 
     If *shallow* is ``True``, the handler is removed from the handler stack
     after handling one effect occurrence.
+
+    ```python
+    read: Effect[[], str] = effect("read")
+    h: AsyncHandler[str] = create_async_handler(read)
+
+    @h.on(read)
+    async def _read(k: ResumeAsync[str, str]):
+        return await k("hello")
+
+    result = await h(lambda: read() + " world")
+    # result == "hello world"
+    ```
     """
     return _AsyncHandler[Any](*effects, shallow=shallow)
 

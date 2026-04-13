@@ -17,11 +17,26 @@ def effect[**P, R](*functions: Callable[..., Any]) -> Callable[[Callable[P, R]],
 def effect[**P, R](*args: str | Callable[..., Any]) -> Effect[..., Any] | Callable[[Callable[P, R]], Callable[P, R]]:
     """Create an effect or an effect-set decorator.
 
-    * ``effect("name")`` — create a new :class:`Effect` with the given name.
+    * ``effect("name")`` — create a new ``Effect`` with the given name.
+
+    ```python
+    # Create effects
+    read = effect("read")
+    write = effect("write")
+    ```
+
     * ``@effect(e1, e2, ...)`` — decorate a function to declare which effects
       it uses.  The decorated function gains an ``__effects__`` attribute
       (a ``frozenset`` of effects) that can be retrieved with
-      :func:`get_effects`.
+      ``effects(fn)``.
+
+    ```python
+    # Use as decorator to declare effect dependencies
+    @effect(read, write)
+    def process():
+        s = read()
+        return write(s)
+    ```
     """
 
     if len(args) == 0:
