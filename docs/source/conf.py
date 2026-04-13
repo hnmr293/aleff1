@@ -164,8 +164,33 @@ def _callable_to_arrow(s):
     return "".join(result)
 
 
+def _caller_to_arrow(s):
+    """Convert Caller[V] to () → V in a type string."""
+    result = []
+    i = 0
+    while i < len(s):
+        if s[i:].startswith("Caller["):
+            i += len("Caller[")
+            depth = 1
+            start = i
+            while i < len(s) and depth > 0:
+                if s[i] == "[": depth += 1
+                elif s[i] == "]": depth -= 1
+                i += 1
+            inner = s[start:i - 1]
+            result.append(f"() \u2192 {_caller_to_arrow(inner)}")
+        elif s[i:].startswith("Caller"):
+            # Bare Caller without []
+            i += len("Caller")
+            result.append("() \u2192 V")
+        else:
+            result.append(s[i])
+            i += 1
+    return "".join(result)
+
+
 def _rewrite_callable_in_html(app, exception):
-    """Post-process built HTML to replace Callable with arrow notation.
+    """Post-process built HTML to replace Callable/Caller with arrow notation.
 
     Sphinx renders type annotations as sequences of <span> tags, so
     Callable[[], T] becomes multiple tags like:
@@ -179,43 +204,63 @@ def _rewrite_callable_in_html(app, exception):
         return
 
     def _transform_annotation_span(m):
-        """Transform a <span class="n">...</span> block containing Callable."""
+        """Transform a <span class="n">...</span> block containing Callable/Caller."""
         full = m.group(0)
-        if "Callable" not in full:
+        if "Callable" not in full and "Caller" not in full:
             return full
         plain = re.sub(r"<[^>]+>", "", full)
-        converted = _callable_to_arrow(plain)
+        converted = _transform_all(plain)
         if converted == plain:
             return full
         return f'<span class="n"><span class="pre">{converted}</span></span>'
 
+    def _transform_all(plain):
+        """Apply both Callable and Caller arrow conversions."""
+        result = _callable_to_arrow(plain)
+        result = _caller_to_arrow(result)
+        return result
+
     outdir = Path(app.outdir)
     for html_file in outdir.rglob("*.html"):
         text = html_file.read_text(encoding="utf-8")
-        if "Callable" not in text:
+        if "Callable" not in text and "Caller" not in text:
             continue
 
         # Match return type blocks: <span class="sig-return-typehint">...Callable...</span></span>
         def _transform_return_type(m):
             full = m.group(0)
-            if "Callable" not in full:
+            if "Callable" not in full and "Caller" not in full:
                 return full
             plain = re.sub(r"<[^>]+>", "", full)
-            converted = _callable_to_arrow(plain)
+            converted = _transform_all(plain)
             if converted == plain:
                 return full
             return f'<span class="sig-return-typehint"><span class="pre">{converted}</span></span>'
 
         new_text = re.sub(
-            r'<span class="sig-return-typehint">.*?</span></span>(?=</span>)',
+            r'<span class="sig-return-typehint">(?:(?!</dt>).)*?</span></span>(?=</span>)',
             _transform_return_type,
             text,
             flags=re.DOTALL,
         )
-        # Match parameter annotations: <span class="n">...Callable...</span></em>
+        # Match parameter annotations inside <em class="sig-param">:
+        # The <span class="n"> containing Callable/Caller may not be the first
+        # child (e.g. *args has <span class="o">*</span> before it).
+        def _transform_param(m):
+            full = m.group(0)
+            prefix = m.group(1)
+            annotation = m.group(2)
+            if "Callable" not in annotation and "Caller" not in annotation:
+                return full
+            plain = re.sub(r"<[^>]+>", "", annotation)
+            converted = _transform_all(plain)
+            if converted == plain:
+                return full
+            return f'{prefix}<span class="n"><span class="pre">{converted}</span></span>'
+
         new_text = re.sub(
-            r'<span class="n">(?:(?!</em>).)*?Callable.*?</span>(?=</em>)',
-            _transform_annotation_span,
+            r'(<em class="sig-param">(?:(?!</em>).)*?)(<span class="n">(?:(?!</em>).)*?(?:Callable|Caller).*?</span>)(?=</em>)',
+            _transform_param,
             new_text,
             flags=re.DOTALL,
         )

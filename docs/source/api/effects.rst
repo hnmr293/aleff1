@@ -29,12 +29,14 @@ class Handler
 
 .. autoclass:: aleff._multishot.v1.intf.Handler
    :members:
+   :special-members: __call__
 
 class AsyncHandler
 ------------------
 
 .. autoclass:: aleff._multishot.v1.intf.AsyncHandler
    :members:
+   :special-members: __call__
 
 def create_handler
 ------------------
