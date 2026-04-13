@@ -2,6 +2,20 @@
 
 Algebraic effects for Python — deep and shallow, stateful, composable, multi-shot handlers.
 
+```python
+from aleff import effect, create_handler
+
+choose = effect("choose")
+h = create_handler(choose)
+
+@h.on(choose)
+def _(k, *values):
+    return sum((k(v) for v in values), [])
+
+print(h(lambda: [choose("A", "B") + choose("C", "D")]))
+# ['AC', 'AD', 'BC', 'BD']
+```
+
 ## Features
 
 - **Deep handlers** — effects propagate through nested function calls without annotation
