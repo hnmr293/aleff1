@@ -28,7 +28,7 @@ jobs:
       - name: Build documentation
         run: uv run sphinx-build -b html docs/source docs/build
 
-      - uses: actions/upload-pages-artifact@v3
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: docs/build
 
